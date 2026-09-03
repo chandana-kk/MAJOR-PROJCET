@@ -5,6 +5,43 @@ prediction project. It ships with a deterministic, physically plausible
 **two-year hourly dataset** (17,520 rows) and a trained **Random Forest
 regressor**, so every page works out of the box.
 
+## New Features (V2.1)
+
+**Three new fully-implemented features** have been added to EnergyPulse:
+
+### 1. Family Member Management
+- Add household members with individual notification preferences
+- Each member can choose to receive bill alerts and/or optimization tips
+- Personalized language preference per member
+- Immediate removal stops all notifications (fully enforced, not just hidden)
+- Validation: reject invalid emails and duplicates with language-aware error messages
+- Linked to primary user via household ID (not separate, disconnected records)
+
+### 2. Automated Notifications (Email & SMS)
+- **Bill Alerts**: Triggered by predicted cost threshold or schedule, content uses only real computed numbers
+- **Optimization Tips**: Triggered by real usage anomalies detected in data, each tip references specific real appliance and measured increase
+- Email via SendGrid, SMTP, or test mode
+- SMS via Twilio (optional)
+- Each recipient in their preferred language
+- Full audit trail in notification log (who, when, what real data triggered it, status)
+- Graceful failure handling: errors logged, non-blocking status shown, app never crashes
+- Test notification button to verify email delivery without waiting for real trigger
+
+### 3. Grounded Q&A Chatbot
+- Natural language questions about household energy usage
+- **Answers ONLY from real household data** via tool calls:
+  - `get_usage_history`: Actual measurements
+  - `get_appliance_breakdown`: Real appliance-level breakdown
+  - `get_current_prediction`: Computed from recent data
+  - `get_optimization_tips`: Detected anomalies, not generic suggestions
+- Multi-language support: questions understood and answered in all 4 languages
+- **No hallucinations**: If data unavailable, chatbot says so honestly
+- All numeric claims validated against tool output using LLMHallucinationGuard
+- Conversation history stored per user
+- Includes "Tell me why" examples for common questions
+
+See [FEATURES_NEW.md](FEATURES_NEW.md) for complete documentation.
+
 ## Pages
 
 | Page | What it does |
