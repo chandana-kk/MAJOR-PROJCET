@@ -33,6 +33,8 @@ from model import (
 )
 from data import remap_to_current_dates
 from i18n import T, TLIST, LANGS, HOME_TYPES, home_type_label
+from db import get_db
+from features_ui import render_family_tab, render_notifications_tab, render_chat_tab, ensure_login
 
 
 def init_language():
@@ -584,6 +586,7 @@ def render_login_screen():
                     auth["logged_in"] = True
                     auth["email"] = email
                     auth["name"] = st.session_state.user_db[email]["name"]
+                    ensure_login(email, name=st.session_state.user_db[email]["name"])
                     st.rerun()
 
         st.markdown(f'<div class="login-divider">{T("divider_or")}</div>', unsafe_allow_html=True)
@@ -601,6 +604,7 @@ def render_login_screen():
             auth["email"] = "guest@demo.local"
             auth["name"] = "Guest"
             auth["guest"] = True
+            ensure_login("guest@demo.local", name="Guest", is_guest=True)
             st.rerun()
 
     return False
@@ -1206,6 +1210,11 @@ def _main_dashboard_inner():
     cal_year = ss.get("cal_year", pd.Timestamp.now().year)
     sf = compute_scaling_factor(home_details)
 
+    auth_email = st.session_state.auth.get("email", "guest@demo.local")
+    primary_user = get_db().get_user(auth_email)
+    household_id = primary_user["household_id"] if primary_user else hashlib.md5(
+        (auth_email or "").strip().lower().encode()).hexdigest()
+
     st.markdown(f"""
     <div class="hero">
         <div class="hero-glow"></div>
@@ -1306,8 +1315,10 @@ def _main_dashboard_inner():
         week_info = {"total_cost": 0, "pct_change": 0}
         nm_info = {"total_cost": 0, "month": "N/A"}
 
-    tab_overview, tab_analysis, tab_optimize, tab_bills, tab_trends = st.tabs([
-        T("tab_overview"), T("tab_analysis"), T("tab_save"), T("tab_bills"), T("tab_trends")
+    tab_overview, tab_analysis, tab_optimize, tab_bills, tab_trends,\
+        tab_family, tab_notifications, tab_chat = st.tabs([
+        T("tab_overview"), T("tab_analysis"), T("tab_save"), T("tab_bills"), T("tab_trends"),
+        T("tab_family"), T("tab_notifications"), T("tab_chat"),
     ])
 
     with tab_overview:
@@ -1568,6 +1579,27 @@ def _main_dashboard_inner():
             <span><span style="color:#6B8F5E;">&#9632;</span> {T('cal_legend_future')}</span>
         </div>
         """, unsafe_allow_html=True)
+
+    with tab_family:
+        render_family_tab(get_db(), household_id)
+
+    with tab_notifications:
+        render_notifications_tab(
+            get_db(), household_id, auth_email,
+            language=st.session_state.get("lang", "en"),
+            tariff_rate=tariff_rate,
+            history=history,
+            forecast_df=forecast_df,
+        )
+
+    with tab_chat:
+        render_chat_tab(
+            get_db(), household_id, auth_email,
+            language=st.session_state.get("lang", "en"),
+            full_data=full_data,
+            scaling_factor=sf,
+            tariff_rate=tariff_rate,
+        )
 
     st.markdown(f"""<div class="disc">
         <p>{T('about_demo')}</p>
