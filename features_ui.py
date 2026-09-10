@@ -220,13 +220,33 @@ def render_notifications_tab(db, household_id: str, primary_email: str,
     _section(T("notif_title"), "\U0001f514")
     st.markdown(T("notif_intro"))
 
-    # Backend status
+    # Backend status (honest: real credentials present -> Connected, else Not configured)
     c1, c2 = st.columns(2)
-    email_status = service.email_backend or T("notif_not_configured")
+    email_backend = service.email_backend
     with c1:
-        st.metric(T("notif_email_backend"), str(email_status).upper())
+        email_status = T("notif_connected") if email_backend else T("notif_not_configured")
+        st.metric(T("notif_email_backend"), f"{'✓ ' if email_backend else ''}{email_status}")
+        if email_backend == "smtp":
+            st.caption(t_lang("notif_email_caption_smtp", language,
+                              user=service.SMTP_USERNAME))
+        elif email_backend == "sendgrid":
+            st.caption(T("notif_email_caption_sendgrid"))
     with c2:
-        st.metric(T("notif_sms_backend"), (service.sms_backend or T("notif_not_configured")).upper())
+        sms_status = T("notif_connected") if service.sms_backend else T("notif_not_configured")
+        st.metric(T("notif_sms_backend"), f"{'✓ ' if service.sms_backend else ''}{sms_status}")
+        st.caption(T("notif_sms_optional"))
+
+    if not email_backend:
+        with st.expander(T("notif_howto_title")):
+            st.markdown(T("notif_howto_intro"))
+            st.markdown(T("notif_howto_step1"))
+            st.markdown(T("notif_howto_step2"))
+            st.markdown(T("notif_howto_step3"))
+            st.markdown(T("notif_howto_step4"))
+            st.code(T("notif_howto_env"), language="properties")
+            st.markdown(T("notif_howto_step5"))
+            st.markdown(f"**{T('notif_howto_alt_title')}**")
+            st.markdown(T("notif_howto_alt"))
 
     # Bill alert threshold
     settings = db.get_household_settings(household_id)
