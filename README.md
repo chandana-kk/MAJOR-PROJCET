@@ -28,16 +28,40 @@ regressor**, so every page works out of the box.
 - Test notification button to verify email delivery without waiting for real trigger
 - "Run scheduled checks now" button triggers detection immediately from real data
 
-#### Email configuration
-Copy `.env.example` to `.env` and pick exactly ONE email provider (no env vars set means the app runs in test mode, where no email is sent but the audit log still records delivery):
+#### Email configuration — Gmail SMTP (recommended, no signup)
 
-| Mode | Required variables |
-| --- | --- |
-| **SendGrid** | `SENDGRID_API_KEY` |
-| **SMTP** (Gmail/Outlook/custom) | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` |
-| **SMS (optional Twilio)** | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` |
+The app reads these exact variable names: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` (and optionally `SMTP_FROM`).
 
-Email verification prior to sending (all four languages) makes delivery failures visible in the Notifications tab instead of crashing the app.
+Set up a free Gmail app password in ~3 minutes (no third-party accounts):
+
+1. **Turn on 2-Step Verification** — go to your Google Account → Security → *2-Step Verification* and turn it on (required once for app passwords).
+2. **Create an app password** — Google Account → Security → *App Passwords* → choose **Mail** (or Other → name it `energypulse`).
+3. **Copy the 16-character password** it shows (e.g. `abcd efgh ijkl mnop`).
+4. **Edit the `.env` file** in the project root (if missing, copy `.env.example` and fill it in):
+   ```
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=587
+   SMTP_USERNAME=your@gmail.com
+   SMTP_PASSWORD=the-16-character-app-password
+   ```
+   (Leave `SMTP_FROM` blank to send from your own Gmail address.)
+5. **Save and restart the app.** The Notifications tab will now show "Connected" — click **Send test** to verify delivery.
+
+> Use the 16-character **app password**, not your normal Gmail password. Normal passwords are rejected by Google for SMTP.
+
+#### Email configuration — SendGrid (alternative)
+
+If you prefer SendGrid instead of Gmail, create a free account at sendgrid.com, then in `.env` set the variable the app reads:
+
+```
+SENDGRID_API_KEY=your_sendgrid_api_key_here
+```
+
+Use **either** the SMTP block **or** `SENDGRID_API_KEY`, not both — the app prefers SendGrid when both are present. If no email variables are set at all, the app runs honestly in test mode: no email is sent, delivery status is recorded as failed, and the tab shows "Not configured".
+
+#### SMS — optional (future step)
+
+SMS uses Twilio (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`). It is intentionally optional — leave the variables blank and SMS simply stays "Not configured" in the app. It is not required for email delivery.
 
 ### 3. Grounded Q&A Chatbot
 - Natural language questions about household energy usage
