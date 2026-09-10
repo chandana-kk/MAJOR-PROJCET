@@ -34,17 +34,28 @@ def _round2(value: float) -> float:
 class NotificationService:
     """Sends notifications via email and optional SMS. Never raises to callers."""
 
-    SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
-    SMTP_HOST = os.getenv("SMTP_HOST")
-    SMTP_PORT = int(os.getenv("SMTP_PORT") or "587")
-    SMTP_USERNAME = os.getenv("SMTP_USERNAME")
-    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
-    SMTP_FROM = os.getenv("SMTP_FROM") or os.getenv("SMTP_USERNAME") or "noreply@energypulse.local"
-    TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-    TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-    TWILIO_FROM_NUMBER = os.getenv("TWILIO_FROM_NUMBER")
+    # Values that ship in .env.example and must NOT count as "configured".
+    _PLACEHOLDERS = {
+        "your_sendgrid_api_key_here",
+        "your_app_password_here",
+        "your_account_sid_here",
+        "your_auth_token_here",
+        "your_email@gmail.com",
+        "noreply@energypulse.local",
+    }
 
     def __init__(self):
+        # Env is read at construction time (fresh on every app restart), so a
+        # user can add credentials to .env and see "Connected" after restarting.
+        self.SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
+        self.SMTP_HOST = os.getenv("SMTP_HOST")
+        self.SMTP_PORT = int(os.getenv("SMTP_PORT") or "587")
+        self.SMTP_USERNAME = os.getenv("SMTP_USERNAME")
+        self.SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+        self.SMTP_FROM = os.getenv("SMTP_FROM") or os.getenv("SMTP_USERNAME") or "noreply@energypulse.local"
+        self.TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+        self.TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+        self.TWILIO_FROM_NUMBER = os.getenv("TWILIO_FROM_NUMBER")
         self.db = get_db()
         self.email_backend = None
         self.sms_backend = None
@@ -53,9 +64,14 @@ class NotificationService:
         self._init_email_backend()
         self._init_sms_backend()
 
+    @staticmethod
+    def _real(value: Optional[str]) -> bool:
+        """True only when a value is present AND not an .env.example placeholder."""
+        return bool(value) and str(value).strip() not in NotificationService._PLACEHOLDERS
+
     def _init_email_backend(self):
         key = (self.SENDGRID_API_KEY or "").strip()
-        if key and key != "your_sendgrid_api_key_here":
+        if self._real(key):
             try:
                 from sendgrid import SendGridAPIClient
                 self.email_backend = "sendgrid"
@@ -66,13 +82,13 @@ class NotificationService:
         host = (self.SMTP_HOST or "").strip()
         user = (self.SMTP_USERNAME or "").strip()
         password = (self.SMTP_PASSWORD or "").strip()
-        if host and user and password and password != "your_app_password_here":
+        if host and self._real(user) and self._real(password):
             self.email_backend = "smtp"
 
     def _init_sms_backend(self):
         sid = (self.TWILIO_ACCOUNT_SID or "").strip()
         token = (self.TWILIO_AUTH_TOKEN or "").strip()
-        if sid and token and sid != "your_account_sid_here":
+        if self._real(sid) and self._real(token):
             try:
                 from twilio.rest import Client
                 self.sms_backend = "twilio"

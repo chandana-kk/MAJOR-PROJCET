@@ -443,6 +443,76 @@ def test_feature_extensions():
         return False
 
 
+def test_email_backend_setup():
+    """Honest backend detection: real creds -> Connected, placeholders/absent -> Not configured.
+    No network calls are made; this only verifies the detection logic."""
+    print("\n" + "="*60)
+    print("TEST 6: Email Backend Setup & Detection")
+    print("="*60)
+
+    import os as _os
+    import importlib.util
+    from notifications import NotificationService
+    from i18n import t_lang
+
+    saved = {}
+    for var in ("SENDGRID_API_KEY", "SMTP_HOST", "SMTP_PORT", "SMTP_USERNAME",
+                "SMTP_PASSWORD", "SMTP_FROM", "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"):
+        saved[var] = _os.environ.get(var)
+        _os.environ.pop(var, None)
+    try:
+        # 1. Nothing set -> honestly "Not configured"
+        none_svc = NotificationService()
+        print(f"✓ No creds -> not configured: {none_svc.email_backend is None}")
+
+        # 2. .env.example placeholder values must NOT count as configured
+        _os.environ["SENDGRID_API_KEY"] = "your_sendgrid_api_key_here"
+        _os.environ["SMTP_HOST"] = "smtp.gmail.com"
+        _os.environ["SMTP_USERNAME"] = "your_email@gmail.com"
+        _os.environ["SMTP_PASSWORD"] = "your_app_password_here"
+        ph_svc = NotificationService()
+        print(f"✓ .env.example placeholders -> still not configured: {ph_svc.email_backend is None}")
+
+        # 3. Real-looking Gmail SMTP app password -> configured as smtp
+        _os.environ["SENDGRID_API_KEY"] = ""
+        _os.environ["SMTP_USERNAME"] = "test@gmail.com"
+        _os.environ["SMTP_PASSWORD"] = "abcd efgh ijkl mnop"
+        smtp_svc = NotificationService()
+        print(f"✓ Real Gmail SMTP creds -> configured: {smtp_svc.email_backend == 'smtp'}")
+
+        # 4. Real-looking SendGrid key -> configured as sendgrid (when lib installed)
+        sg_detected = None
+        if importlib.util.find_spec("sendgrid"):
+            _os.environ["SENDGRID_API_KEY"] = "SG.aaaa1111bbbb2222"
+            _os.environ["SMTP_USERNAME"] = ""
+            _os.environ["SMTP_PASSWORD"] = ""
+            sg_svc = NotificationService()
+            sg_detected = sg_svc.email_backend == "sendgrid"
+            print(f"✓ Real SendGrid key -> configured: {sg_detected}")
+        else:
+            print("⚠ sendgrid library not installed - skipping SendGrid detection check")
+
+        # 5. Setup-guide strings exist in all four languages (missing keys fall back to the raw key)
+        keys = ["notif_connected", "notif_sms_optional", "notif_howto_title",
+                "notif_howto_step1", "notif_howto_env", "notif_email_caption_smtp"]
+        ok_i18n = all(t_lang(k, lang) != k for k in keys for lang in ("en", "hi", "kn", "te"))
+        print(f"✓ Setup guide localized in all 4 languages: {ok_i18n}")
+
+        result = (none_svc.email_backend is None
+                  and ph_svc.email_backend is None
+                  and smtp_svc.email_backend == "smtp"
+                  and ok_i18n)
+        if sg_detected is not None:
+            result = result and sg_detected
+        return result
+    finally:
+        for var, val in saved.items():
+            if val is None:
+                _os.environ.pop(var, None)
+            else:
+                _os.environ[var] = val
+
+
 def main():
     """Run all tests."""
     print("\n" + "="*60)
@@ -455,6 +525,7 @@ def main():
         "Chatbot": test_chatbot(),
         "LLM Guard": test_llm_guard(),
         "Extensions": test_feature_extensions(),
+        "Email Setup": test_email_backend_setup(),
     }
     
     print("\n" + "="*60)
