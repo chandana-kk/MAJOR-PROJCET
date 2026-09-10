@@ -7,7 +7,11 @@ Run with: python test_new_features.py
 """
 
 import sys
+import hashlib
 from datetime import datetime
+
+import numpy as np
+import pandas as pd
 
 def test_database():
     """Test database layer."""
@@ -281,10 +285,159 @@ def test_llm_guard():
         is_valid2, issues2, corrected2 = guard.validate_response(invalid_response, language="en")
         print(f"✓ Detects invented numbers: {not is_valid2}")
         
+        # Test that ISO date/time tokens inside an answer are NOT flagged
+        guard2 = LLMHallucinationGuard()
+        guard2.register_computed_stat("usage", 3.5)
+        guard2.register_computed_stat("mean", 2.0)
+        guard2.register_computed_stat("pct", 75.0)
+        tstamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        tip_text = f"Appliance was 3.50 kW at {tstamp} (75.0% above average)."
+        is_valid3, issues3, _ = guard2.validate_response(tip_text, language="en")
+        print(f"✓ Date/time token not flagged as hallucination: {is_valid3}")
+        
         return True
     
     except Exception as e:
         print(f"✗ LLM Guard test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def _make_household_data(n_days=14, seed=42):
+    """Build a synthetic 14-day hourly household dataset for grounding tests."""
+    idx = pd.date_range(end=pd.Timestamp.now().floor("h"), periods=int(n_days) * 24, freq="h")
+    rng = np.random.default_rng(seed)
+    df = pd.DataFrame({"datetime": idx})
+    df["Global_active_power"] = 0.5 + rng.random(len(df)) * 1.5
+    df["Global_reactive_power"] = 0.05 + rng.random(len(df)) * 0.3
+    df["Voltage"] = 235 + rng.random(len(df)) * 5
+    df["Global_intensity"] = 1.0 + rng.random(len(df)) * 5.0
+    df["Sub_metering_1"] = rng.random(len(df)) * 400
+    df["Sub_metering_2"] = rng.random(len(df)) * 300
+    df["Sub_metering_3"] = rng.random(len(df)) * 500
+    df["is_weekend"] = df["datetime"].dt.dayofweek >= 5
+    return df
+
+
+def test_feature_extensions():
+    """
+    Test the integration gaps that were previously missing:
+      - Removed family member stops receiving notifications
+      - Week comparison grounded in real data (honest when no prior week)
+      - Multilingual intent routing and genuinely translated answers
+      - Notification-log tool surfaced to the chatbot
+    """
+    print("\n" + "="*60)
+    print("TEST 5: Feature Extensions (week compare, multilingual, notification log, removal)")
+    print("="*60)
+
+    try:
+        from db import get_db
+        from notifications import get_notification_service
+        from chatbot import get_chatbot
+
+        db = get_db()
+        service = get_notification_service()
+        chatbot = get_chatbot()
+
+        email = f"ext_{datetime.now().timestamp()}@test.local"
+        household_id = hashlib.md5(email.encode()).hexdigest()
+        db.create_user(email, "Extension", "pass", household_id=household_id)
+
+        # ── Family + live recipient list ─────────────────────────────
+        print("\n--- Family members + live recipients ---")
+        ok, _ = db.add_family_member(
+            household_id, "Ravi", "Spouse", "ravi@test.local",
+            preferred_language="hi", notify_bills=True, notify_tips=True,
+        )
+        _, _ = db.add_family_member(
+            household_id, "Sita", "Child", "sita@test.local",
+            preferred_language="kn", notify_bills=True, notify_tips=False,
+        )
+        bill_recipients = service.recipients_for(household_id, email, "notification_bill_alerts", "en")
+        bill_emails = [r[0] for r in bill_recipients]
+        print(f"✓ Bill-alert recipients include Ravi & Sita: {'ravi@test.local' in bill_emails and 'sita@test.local' in bill_emails}")
+        tip_recipients = service.recipients_for(household_id, email, "notification_optimization_tips", "en")
+        print(f"✓ Sita opted out of tips and is excluded: {'sita@test.local' not in [r[0] for r in tip_recipients]}")
+
+        # ── Removing a member stops their notifications ──────────────
+        print("\n--- Removed member stops receiving (re-queried at send time) ---")
+        sita_id = [m["id"] for m in db.get_family_members(household_id)
+                   if m["email"] == "sita@test.local"][0]
+        db.remove_family_member(sita_id, household_id)
+        bill_after = [r[0] for r in service.recipients_for(household_id, email, "notification_bill_alerts", "en")]
+        print(f"✓ Sita no longer in recipient list: {'sita@test.local' not in bill_after}")
+
+        # ── Week comparison: grounded in real data ───────────────────
+        print("\n--- Week comparison grounded in real data ---")
+        df_two_weeks = _make_household_data(n_days=14)
+        ans, valid, meta = chatbot.answer_question(
+            household_id, email, "Why was my bill higher last week?",
+            language="en", tariff_rate=8.0, household_data=df_two_weeks,
+        )
+        used_week = any("get_week_comparison" in t for t in meta["tool_calls"])
+        print(f"✓ Week comparison tool called for 'why was my bill higher': {used_week}")
+        print(f"✓ Answer passed grounded validation: {valid}")
+        print(f"  A: {ans[:120]}...")
+
+        # ── Honest response when no prior week exists ─────────────────
+        df_one_week = _make_household_data(n_days=7, seed=1)
+        ans2, valid2, meta2 = chatbot.answer_question(
+            household_id, email, "Why was my bill higher than last week?",
+            language="en", tariff_rate=8.0, household_data=df_one_week,
+        )
+        honest = any(k in ans2 for k in (
+            "no comparison was invented", "कोई तुलना आविष्कार",
+            "ಹೋಲಿಕೆಯನ್ನು ನಿರ್ಮಿಸಲಾಗಿಲ್ಲ", "పోలిక రూపొందించలేదు",
+        ))
+        print(f"✓ Honest 'no prior week' answer (no invented comparison): {honest}")
+        print(f"  A: {ans2[:120]}...")
+
+        # ── Multilingual intent routing ───────────────────────────────
+        print("\n--- Multilingual intent routing ---")
+        route_hi = chatbot._plan_tools("कौन सा उपकरण सबसे अधिक बिजली खपत करता है?", "hi")
+        route_kn = chatbot._plan_tools("ಯಾವ ಉಪಕರಣ ಹೆಚ್ಚು ವಿದ್ಯುತ್ ಬಳಕೆಯನ್ನು ಮಾಡುತ್ತದೆ?", "kn")
+        route_te = chatbot._plan_tools("మా అంచనా ఖర్చు ఎంత?", "te")
+        print(f"✓ Hindi tools routed: {'get_appliance_breakdown' in route_hi}")
+        print(f"✓ Kannada tools routed: {'get_appliance_breakdown' in route_kn}")
+        print(f"✓ Telugu tools routed: {'get_current_prediction' in route_te}")
+        out_of_scope_hi = chatbot._plan_tools("मौसम कैसा रहेगा?", "hi") == ["out_of_scope"]
+        print(f"✓ Hindi out-of-scope detected: {out_of_scope_hi}")
+
+        # ── Answers genuinely translated (not English defaults) ──────
+        print("\n--- Translated answers ---")
+        ans_hi, valid_hi, _ = chatbot.answer_question(
+            household_id, email, "कौन सा उपकरण सबसे अधिक बिजली लेता है?",
+            language="hi", household_data=df_two_weeks,
+        )
+        localized_hi = any(ch in ans_hi for ch in ("रसोई", "लॉन्ड्री", "वॉटर", "अन्य"))
+        print(f"✓ Hindi answer uses localized appliance name: {localized_hi} (valid={valid_hi})")
+        ans_te, valid_te, _ = chatbot.answer_question(
+            household_id, email, "ఏ ఉపకరణం ఎక్కువ విద్యుత్ వాడుతుంది?",
+            language="te", household_data=df_two_weeks,
+        )
+        localized_te = any(ch in ans_te for ch in ("వంటగది", "లాండ్రీ", "వాటర్", "ఇతర"))
+        print(f"✓ Telugu answer uses localized appliance name: {localized_te} (valid={valid_te})")
+
+        # ── Notification-log tool returns real audit entries ──────────
+        print("\n--- Notification log tool ---")
+        db.log_notification(
+            household_id, "ravi@test.local", "Ravi", "test", "manual_test",
+            {}, "Test subject", "Test body", language="en", status="sent",
+        )
+        ans_log, valid_log, meta_log = chatbot.answer_question(
+            household_id, email, "What notifications were sent to my family?",
+            language="en", household_data=df_two_weeks,
+        )
+        used_log = any("get_family_notification_log" in t for t in meta_log["tool_calls"])
+        print(f"✓ Notification-log tool called: {used_log}")
+        print(f"✓ Log entry visible in answer: {'ravi@test.local' in ans_log}")
+
+        return True
+
+    except Exception as e:
+        print(f"✗ Feature extensions test failed: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -301,6 +454,7 @@ def main():
         "Notifications": test_notifications(),
         "Chatbot": test_chatbot(),
         "LLM Guard": test_llm_guard(),
+        "Extensions": test_feature_extensions(),
     }
     
     print("\n" + "="*60)
