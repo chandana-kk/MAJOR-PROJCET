@@ -128,24 +128,35 @@ class LLMHallucinationGuard:
         """
         numbers = {}
         
+        # Skip numbers that are parts of ISO date/time tokens (e.g. "2025-09-10 14:00"
+        # or "09/10/2025 02:30 PM"). These come verbatim from tool data and are never
+        # invented numeric claims, so they must not be flagged as hallucinations.
+        datetime_token_re = re.compile(
+            r"\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:[ T]\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?)?"
+            r"|\d{1,2}[-/]\d{1,2}[-/]\d{2,4}(?:[\sT]\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?)?"
+        )
+        cleaned_text = datetime_token_re.sub(" ", text)
+        
         # Pattern for "Rs. XXX" or "₹ XXX" or "Rs XXX"
         rs_pattern = r'(?:Rs\.?|₹)\s*([0-9,]+(?:\.\d{1,2})?)'
-        for match in re.finditer(rs_pattern, text, re.IGNORECASE):
+        for match in re.finditer(rs_pattern, cleaned_text, re.IGNORECASE):
             num_str = match.group(1).replace(',', '')
             value = float(num_str) if num_str else 0
-            context = text[max(0, match.start()-20):match.end()+20]
+            context = cleaned_text[max(0, match.start()-20):match.end()+20]
             numbers[f"rs_{len(numbers)}_{context[:30]}"] = value
         
         # Pattern for "XX %" or "XX%"
         pct_pattern = r'(\d+(?:\.\d{1,2})?)\s*%'
-        for match in re.finditer(pct_pattern, text):
+        for match in re.finditer(pct_pattern, cleaned_text):
             value = float(match.group(1))
-            context = text[max(0, match.start()-20):match.end()+20]
+            context = cleaned_text[max(0, match.start()-20):match.end()+20]
             numbers[f"pct_{len(numbers)}_{context[:30]}"] = value
         
-        # Pattern for plain numbers >= 10 (assume significant claims)
-        num_pattern = r'(?<!\d)(\d{2,}(?:\.\d+)?)\s*(?:kWh|units?|days?|hours?|months?|years?|people|persons?)?'
-        for match in re.finditer(num_pattern, text):
+        # Pattern for plain numbers >= 10 (assume significant claims).
+        # The lookbehind/lookahead stop the matcher from splitting off the
+        # fractional part of a decimal (e.g. "3.50 kW" must not yield "50").
+        num_pattern = r'(?<![.\d])(\d{2,}(?:\.\d+)?)(?![\d.])\s*(?:kWh|units?|days?|hours?|months?|years?|people|persons?)?'
+        for match in re.finditer(num_pattern, cleaned_text):
             value = float(match.group(1))
             if value >= 10:
                 context = text[max(0, match.start()-20):match.end()+20]
@@ -177,8 +188,10 @@ class LLMHallucinationGuard:
         # Extract numbers from response
         response_numbers = self.extract_numbers_from_text(response)
         
-        # Check if response admits missing data appropriately
-        if self.tool_results == {} and not any(
+        # Check if response admits missing data appropriately.
+        # Grounding evidence = any registered tool result or computed stat.
+        # If nothing was grounded yet, the response must say data is unavailable.
+        if self.extracted_numbers == {} and self.tool_results == {} and not any(
             phrase in response.lower()
             for phrase in ["don't have", "not available", "no data", "unable to", 
                           "cannot determine", "insufficient", "missing"]

@@ -36,7 +36,7 @@ class DatabaseManager:
     @contextmanager
     def get_connection(self):
         """Get a database connection with automatic cleanup."""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row  # Access columns by name
         try:
             yield conn
@@ -126,6 +126,17 @@ class DatabaseManager:
                     FOREIGN KEY (household_id) REFERENCES users(household_id)
                 )
             """)
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS household_settings (
+                    household_id TEXT PRIMARY KEY,
+                    bill_threshold REAL DEFAULT 1500.0,
+                    last_bill_alert_at TIMESTAMP,
+                    last_weekly_summary_at TIMESTAMP,
+                    last_optimization_key TEXT,
+                    FOREIGN KEY (household_id) REFERENCES users(household_id)
+                )
+            """)
             
             conn.commit()
     
@@ -134,6 +145,7 @@ class DatabaseManager:
     def create_user(self, email: str, name: str, password: str, is_guest: bool = False,
                    preferred_language: str = "en", household_id: Optional[str] = None) -> bool:
         """Create a new user account. Returns True on success."""
+        email = (email or "").strip().lower()
         if household_id is None:
             household_id = hashlib.md5(email.encode()).hexdigest()
         
@@ -147,12 +159,46 @@ class DatabaseManager:
                     (email, name, password_hash, household_id, is_guest, preferred_language)
                     VALUES (?, ?, ?, ?, ?, ?)
                 """, (email, name, password_hash, household_id, is_guest, preferred_language))
+            self.ensure_household_settings(household_id)
             return True
         except sqlite3.IntegrityError:
             return False  # Email already exists
     
+    def ensure_user_login(self, email: str, name: str = None, is_guest: bool = False,
+                          preferred_language: str = "en") -> Dict[str, Any]:
+        """
+        Sync an app login to the persistent user table (INSERT OR IGNORE),
+        so notifications / family management work for in-memory-login users.
+        Returns the user dict (with household_id).
+        """
+        email = (email or "").strip().lower()
+        name = (name or "") or email.split("@")[0]
+        household_id = hashlib.md5(email.encode()).hexdigest()
+        password_hash = hashlib.sha256((email + household_id).encode()).hexdigest()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO users
+                (email, name, password_hash, household_id, is_guest, preferred_language)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(email) DO UPDATE SET
+                    name = excluded.name,
+                    is_guest = excluded.is_guest,
+                    preferred_language = excluded.preferred_language
+            """, (email, name, password_hash, household_id,
+                  1 if is_guest else 0, preferred_language))
+        self.ensure_household_settings(household_id)
+        return {
+            "email": email,
+            "name": name,
+            "household_id": household_id,
+            "guest": bool(is_guest),
+            "language": preferred_language,
+        }
+
     def authenticate_user(self, email: str, password: str) -> Optional[Dict[str, Any]]:
         """Authenticate user. Returns user dict on success, None on failure."""
+        email = (email or "").strip().lower()
         password_hash = hashlib.sha256(password.encode()).hexdigest()
         
         with self.get_connection() as conn:
@@ -176,6 +222,7 @@ class DatabaseManager:
     
     def get_user(self, email: str) -> Optional[Dict[str, Any]]:
         """Get user details (no password check)."""
+        email = (email or "").strip().lower()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -217,16 +264,18 @@ class DatabaseManager:
         Add a family member to the household.
         Returns (success: bool, message: str)
         """
-        # Validate email
+        email = (email or "").strip().lower()
+        name = (name or "").strip()
+        if not name:
+            return (False, "missing_name")
         if not self._validate_email(email):
             return (False, "invalid_email")
         
-        # Check for duplicates
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT id FROM family_members 
-                WHERE household_id = ? AND email = ?
+                WHERE household_id = ? AND lower(email) = ?
             """, (household_id, email))
             if cursor.fetchone():
                 return (False, "duplicate_email")
@@ -258,8 +307,9 @@ class DatabaseManager:
         
         return [dict(row) for row in rows]
     
-    def update_family_member(self, member_id: int, updates: Dict[str, Any]) -> bool:
-        """Update a family member's details."""
+    def update_family_member(self, member_id: int, household_id: str,
+                             updates: Dict[str, Any]) -> Tuple[bool, str]:
+        """Update a family member's details. Scoped to household_id."""
         allowed_fields = {
             'name', 'relationship', 'email', 'phone', 'preferred_language',
             'notification_bill_alerts', 'notification_optimization_tips'
@@ -267,20 +317,43 @@ class DatabaseManager:
         
         updates = {k: v for k, v in updates.items() if k in allowed_fields}
         if not updates:
-            return True
-        
-        # Validate email if updating it
-        if 'email' in updates and not self._validate_email(updates['email']):
-            return False
+            return (True, "member_updated")
+
+        if 'email' in updates:
+            updates['email'] = (updates['email'] or "").strip().lower()
+            if not self._validate_email(updates['email']):
+                return (False, "invalid_email")
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id FROM family_members
+                    WHERE household_id = ? AND lower(email) = ? AND id != ?
+                """, (household_id, updates['email'], member_id))
+                if cursor.fetchone():
+                    return (False, "duplicate_email")
+
+        if 'name' in updates:
+            updates['name'] = (updates['name'] or "").strip()
+            if not updates['name']:
+                return (False, "missing_name")
+
+        for bool_key in ('notification_bill_alerts', 'notification_optimization_tips'):
+            if bool_key in updates:
+                updates[bool_key] = 1 if updates[bool_key] else 0
         
         set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
-        values = list(updates.values()) + [member_id]
+        values = list(updates.values()) + [member_id, household_id]
         
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(f"UPDATE family_members SET {set_clause} WHERE id = ?", values)
+            cursor.execute(
+                f"UPDATE family_members SET {set_clause} WHERE id = ? AND household_id = ?",
+                values,
+            )
+            if cursor.rowcount == 0:
+                return (False, "not_found")
         
-        return True
+        return (True, "member_updated")
     
     def remove_family_member(self, member_id: int, household_id: str) -> bool:
         """
@@ -293,8 +366,18 @@ class DatabaseManager:
                 DELETE FROM family_members 
                 WHERE id = ? AND household_id = ?
             """, (member_id, household_id))
-        
-        return True
+            return cursor.rowcount > 0
+
+    def family_member_exists(self, household_id: str, email: str) -> bool:
+        """True only if this email is still a current family member of the household."""
+        email = (email or "").strip().lower()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id FROM family_members
+                WHERE household_id = ? AND lower(email) = ?
+            """, (household_id, email))
+            return cursor.fetchone() is not None
     
     # ────────────── NOTIFICATION MANAGEMENT ──────────────────────────────
     
@@ -382,6 +465,61 @@ class DatabaseManager:
         
         # Reverse to get chronological order
         return [dict(row) for row in reversed(rows)]
+
+    def clear_conversations(self, household_id: str, email: str) -> int:
+        """Delete chatbot history for a user in a household. Returns rows deleted."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                DELETE FROM chatbot_conversations
+                WHERE household_id = ? AND email = ?
+            """, (household_id, email))
+            return cursor.rowcount
+
+    def get_household_settings(self, household_id: str) -> Dict[str, Any]:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM household_settings WHERE household_id = ?",
+                (household_id,),
+            )
+            row = cursor.fetchone()
+        if row:
+            return dict(row)
+        self.ensure_household_settings(household_id)
+        return {
+            "household_id": household_id,
+            "bill_threshold": 1500.0,
+            "last_bill_alert_at": None,
+            "last_weekly_summary_at": None,
+            "last_optimization_key": None,
+        }
+
+    def ensure_household_settings(self, household_id: str) -> None:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR IGNORE INTO household_settings (household_id)
+                VALUES (?)
+            """, (household_id,))
+
+    def update_household_settings(self, household_id: str, updates: Dict[str, Any]) -> None:
+        allowed = {
+            "bill_threshold", "last_bill_alert_at",
+            "last_weekly_summary_at", "last_optimization_key",
+        }
+        updates = {k: v for k, v in updates.items() if k in allowed}
+        if not updates:
+            return
+        self.ensure_household_settings(household_id)
+        set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
+        values = list(updates.values()) + [household_id]
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                f"UPDATE household_settings SET {set_clause} WHERE household_id = ?",
+                values,
+            )
     
     # ────────────── UTILITIES ──────────────────────────────────────────────────
     

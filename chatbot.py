@@ -1,191 +1,374 @@
 """
 Grounded Q&A Chatbot for EnergyPulse
-====================================
+=====================================
 A question-answering chatbot that ONLY answers based on real household data.
 
 Core principle:
   - Every numeric claim must come from a tool that queries real data
   - If data isn't available, the chatbot says so honestly
   - All responses are validated against actual tool output before display
-  - Supports all four languages (English, Hindi, Kannada, Telugu)
+  - Supports all four languages (English, Hindi, Kannada, Telugu) — questions
+    are understood and answered in the selected language, never defaulting back
+    to English mid-conversation.
 
 Questions the chatbot can answer:
   - "Why was my bill higher last week?"
   - "Which appliance uses the most power?"
   - "How can I reduce my AC usage cost?"
   - "What's my average daily consumption?"
-  - "Which hours do I use the most energy?"
+  - "What notifications were sent to my family?"
 """
 
 import json
-import pandas as pd
 import re
+import pandas as pd
 from typing import Dict, List, Tuple, Optional, Any
 from datetime import datetime, timedelta
 
 from db import get_db
 from llm_guard import LLMHallucinationGuard
-from i18n import T
+from i18n import t_lang
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Multilingual question understanding
+#   The selected UI language is always known at ask-time, so intent matching
+#   is done against keywords in that language (English fallback).
+# ──────────────────────────────────────────────────────────────────────────
+_QUESTION_TERMS = {
+    "why_compare": {
+        "en": ["why", "higher", "lower", "compare", "compared", "versus", "change",
+               "went up", "went down", "increased", "decreased", "difference"],
+        "hi": ["क्यों", "अधिक", "कम", "तुलना", "बढ़", "घट", "बदल", "अंतर"],
+        "kn": ["ಏಕೆ", "ಹೆಚ್ಚು", "ಕಡಿಮೆ", "ಹೋಲಿಕೆ", "ಏರಿತು", "ಇಳಿಯಿತು", "ವ್ಯತ್ಯಾಸ", "ಬದಲಾವಣೆ"],
+        "te": ["ఎందుకు", "ఎక్కువ", "తక్కువ", "పోలిక", "పెరిగాయి", "తగ్గాయి", "మార్పు", "తేడా"],
+    },
+    "usage_history": {
+        "en": ["history", "last", "how much", "consumption", "used", "usage", "trend",
+               "average daily", "week"],
+        "hi": ["इतिहास", "पिछले", "कितना", "खपत", "उपयोग", "औसत", "सप्ताह", "दिन"],
+        "kn": ["ಇತಿಹಾಸ", "ಕಳೆದ", "ಎಷ್ಟು", "ಬಳಕೆ", "ಸರಾಸರಿ", "ವಾರ", "ದಿನ"],
+        "te": ["చరిత్ర", "గత", "ఎంత", "వినియోగం", "సగటు", "వారం", "రోజు"],
+    },
+    "appliance": {
+        "en": ["appliance", "which", "most", "device", "uses the", "power use", "consume"],
+        "hi": ["उपकरण", "कौन", "सबसे", "यंत्र", "बिजली", "खर्च"],
+        "kn": ["ಉಪಕರಣ", "ಯಾವ", "ಹೆಚ್ಚು", "ಸಾಧನ", "ವಿದ್ಯುತ್"],
+        "te": ["ఉపకరణం", "ఏ", "ఎక్కువ", "పరికరం", "విద్యుత్"],
+    },
+    "prediction": {
+        "en": ["predict", "forecast", "next month", "monthly", "cost", "expensive",
+               "rupee", "rs ", "projection", "expected", "spend"],
+        "hi": ["अनुमान", "पूर्वानुमान", "अगले", "मासिक", "लागत", "महंगा", "रुपये", "प्रोजेक्शन"],
+        "kn": ["ಅಂದಾಜು", "ಮುನ್ಸೂಚನೆ", "ಮುಂದಿನ", "ಮಾಸಿಕ", "ವೆಚ್ಚ", "ದುಬಾರಿ", "ರೂ"],
+        "te": ["అంచనా", "ఫోరెకాస్ట్", "తదుపరి", "మాసిక", "ఖర్చు", "ఖరీదు", "రూ"],
+    },
+    "optimize": {
+        "en": ["reduce", "save", "lower", "optimize", "tip", "efficient", "how can i",
+               "cut", "switch off", "less"],
+        "hi": ["कम", "बचाएँ", "घटाएँ", "सुधार", "सुझाव", "कुशल", "बंद"],
+        "kn": ["ಕಡಿಮೆ", "ಉಳಿಸಿ", "ಸುಧಾರಿಸಿ", "ಸಲಹೆ", "ದಕ್ಷತೆ", "ಆಫ್"],
+        "te": ["తగ్గించు", "ఆదా", "మెరుగు", "సూచన", "దక్షత"],
+    },
+    "notifications": {
+        "en": ["notification", "email", "alert", "log", "sent", "message received",
+               "test notification"],
+        "hi": ["सूचना", "ईमेल", "अलर्ट", "लॉग", "भेजा"],
+        "kn": ["ಅಧಿಸೂಚನೆ", "ಇಮೇಲ್", "ಎಚ್ಚರಿಕೆ", "ದಾಖಲೆ", "ಕಳುಹಿಸಿದ"],
+        "te": ["నోటిఫికేషన్", "ఇమెయిల్", "హెచ్చరిక", "లాగ్", "పంపిన"],
+    },
+}
+
+_OUT_OF_SCOPE = {
+    "en": ["weather", "stock", "share market", "movie", "film", "news", "sport", "cricket",
+           "recipe", "cooking", "travel", "covid", "traffic", "politics", "history of "],
+    "hi": ["मौसम", "शेयर", "फिल्म", "समाचार", "खेल", "क्रिकेट", "पकवान", "यात्रा", "कोविड",
+           "यातायात", "राजनीति"],
+    "kn": ["ಹವಾಮಾನ", "ಷೇರು", "ಚಲನಚಿತ್ರ", "ಸುದ್ದಿ", "ಕ್ರೀಡೆ", "ಕ್ರಿಕೆಟ್", "ಅಡುಗೆ", "ಪ್ರಯಾಣ",
+           "ಕೋವಿಡ್", "ಸಂಚಾರ", "ರಾಜಕೀಯ"],
+    "te": ["వాతావరణం", "షేరు", "సినిమా", "వార్తలు", "క్రీడ", "క్రికెట్", "వంట", "ప్రయాణం",
+           "కోవిడ్", "ట్రాఫిక్", "రాజకీయాలు"],
+}
+
+_APPLIANCE_LABEL_KEY = {
+    "Kitchen": "app_kitchen",
+    "Laundry Room": "app_laundry",
+    "Water Heater & AC": "app_wh_ac",
+    "Other": "app_other",
+}
+
+_NOTIFICATION_TYPE_KEY = {
+    "bill_alert": "notif_type_bill_alert",
+    "weekly_summary": "notif_type_weekly_summary",
+    "optimization_tip": "notif_type_optimization_tip",
+    "test": "notif_type_test",
+}
+
+
+def _prepare_household_data(household_data: Optional[pd.DataFrame]) -> pd.DataFrame:
+    """
+    Return the household's real stored usage data.
+    When the caller (UI) passes its own computed dataframe, use it so the
+    chatbot answers match what the dashboard shows. Otherwise fall back to
+    the stored dataset remapped to current dates.
+    """
+    if household_data is not None and isinstance(household_data, pd.DataFrame) and not household_data.empty:
+        return household_data.copy()
+    from model import load_data
+    from data import remap_to_current_dates
+    raw = load_data()
+    return remap_to_current_dates(raw, last_n_days=90)
 
 
 class ChatbotTool:
     """Base class for chatbot tools that query real household data."""
-    
+
     def __init__(self, name: str, description: str):
         self.name = name
         self.description = description
-    
+
     def execute(self, household_id: str, **kwargs) -> Dict[str, Any]:
-        """Execute the tool and return real data."""
         raise NotImplementedError
 
 
 class GetUsageHistoryTool(ChatbotTool):
-    """Query hourly usage history for a date range."""
-    
+    """Query hourly usage history for a date range (real measured data)."""
+
     def __init__(self):
         super().__init__(
             name="get_usage_history",
-            description="Get hourly electricity usage for a specific date range"
+            description="Get measured hourly electricity usage for a date range",
         )
-    
-    def execute(self, household_id: str, days_back: int = 7) -> Dict[str, Any]:
-        """Get usage history from the app's data."""
+
+    def execute(self, household_id: str, days_back: int = 7,
+                household_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
         try:
-            from model import load_data
-            df = load_data()
-            
-            # Simulate household-specific data (in production, query from household table)
-            recent = df.tail(days_back * 24).copy()
-            recent['datetime'] = pd.to_datetime(recent['datetime'])
-            
-            total_kwh = float(recent['Global_active_power'].sum() / 1000.0)  # Convert to kWh
-            daily_avg = float(total_kwh / days_back)
-            hourly_max = float(recent['Global_active_power'].max())
-            hourly_min = float(recent['Global_active_power'].min())
-            
+            df = _prepare_household_data(household_data)
+            if df.empty or "Global_active_power" not in df.columns:
+                return {"status": "no_data", "message": "no usage data stored"}
+
+            recent = df.tail(int(days_back) * 24).copy()
+            recent["datetime"] = pd.to_datetime(recent["datetime"])
+            if recent.empty:
+                return {"status": "no_data", "message": "No usage data in this range"}
+
+            # Every row is a 1-hour reading in kW → kWh = kW * 1h.
+            total_kwh = float(recent["Global_active_power"].sum())
+            days_covered = int(recent["datetime"].dt.date.nunique())
+            daily_avg = float(total_kwh / days_covered) if days_covered else 0.0
+            hourly_max = float(recent["Global_active_power"].max())
+            hourly_min = float(recent["Global_active_power"].min())
+
             return {
                 "status": "success",
-                "period_days": days_back,
-                "total_kwh": total_kwh,
-                "daily_avg_kwh": daily_avg,
-                "hourly_max_kw": hourly_max,
-                "hourly_min_kw": hourly_min,
-                "data_points": len(recent),
+                "period_days": days_covered,
+                "total_kwh": round(total_kwh, 2),
+                "daily_avg_kwh": round(daily_avg, 2),
+                "hourly_max_kw": round(hourly_max, 2),
+                "hourly_min_kw": round(hourly_min, 2),
+                "data_points": int(len(recent)),
             }
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
 
 class GetApplianceBreakdownTool(ChatbotTool):
-    """Get usage breakdown by appliance category."""
-    
+    """Get usage breakdown by appliance category from real sub-meter data."""
+
     def __init__(self):
         super().__init__(
             name="get_appliance_breakdown",
-            description="Get electricity usage breakdown by appliance/category"
+            description="Get measured electricity usage split by appliance/category",
         )
-    
-    def execute(self, household_id: str, days_back: int = 7) -> Dict[str, Any]:
-        """Get appliance breakdown from real data."""
+
+    def execute(self, household_id: str, days_back: int = 7,
+                household_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
         try:
-            from model import load_data
-            df = load_data()
-            
-            recent = df.tail(days_back * 24).copy()
-            
+            df = _prepare_household_data(household_data)
+            if df.empty or "Global_active_power" not in df.columns:
+                return {"status": "no_data", "message": "no usage data stored"}
+
+            recent = df.tail(int(days_back) * 24).copy()
+            if recent.empty:
+                return {"status": "no_data", "message": "No usage data in this range"}
+
+            sub_cols = ["Sub_metering_1", "Sub_metering_2", "Sub_metering_3"]
+            present = [c for c in sub_cols if c in recent.columns]
+            total_kwh = float(recent["Global_active_power"].sum())
+
+            def _kwh(col):
+                if col in recent.columns:
+                    return float(recent[col].sum() / 1000.0)
+                return 0.0
+
+            kitchen = _kwh("Sub_metering_1")
+            laundry = _kwh("Sub_metering_2")
+            wh_ac = _kwh("Sub_metering_3")
+            known = kitchen + laundry + wh_ac
+            other = max(0.0, total_kwh - known)
+
             breakdown = {
-                "status": "success",
-                "period_days": days_back,
-                "Kitchen_kwh": float(recent['Sub_metering_1'].sum() / 1000.0),
-                "Laundry_kwh": float(recent['Sub_metering_2'].sum() / 1000.0),
-                "WaterHeater_AC_kwh": float(recent['Sub_metering_3'].sum() / 1000.0),
-                "Other_kwh": float((
-                    recent['Global_active_power'].sum() - 
-                    recent['Sub_metering_1'].sum() - 
-                    recent['Sub_metering_2'].sum() - 
-                    recent['Sub_metering_3'].sum()
-                ) / 1000.0),
+                "Kitchen": round(kitchen, 2),
+                "Laundry Room": round(laundry, 2),
+                "Water Heater & AC": round(wh_ac, 2),
+                "Other": round(other, 2),
             }
-            
-            total = sum(v for k, v in breakdown.items() if k.endswith("_kwh"))
-            breakdown["total_kwh"] = total
-            
-            # Find top appliance
-            appliances = {k: v for k, v in breakdown.items() if k.endswith("_kwh")}
-            top_appliance = max(appliances, key=appliances.get)
-            breakdown["top_appliance"] = top_appliance
-            breakdown["top_appliance_kwh"] = appliances[top_appliance]
-            
-            return breakdown
-        
+            total_kwh = round(total_kwh, 2)
+            top = max(breakdown, key=breakdown.get)
+            top_pct = (breakdown[top] / total_kwh * 100.0) if total_kwh > 0 else 0.0
+
+            return {
+                "status": "success",
+                "period_days": int(days_back),
+                "breakdown_kwh": breakdown,
+                "total_kwh": total_kwh,
+                "top_appliance": top,
+                "top_appliance_kwh": breakdown[top],
+                "top_appliance_pct": round(top_pct, 1),
+            }
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
 
 class GetCurrentPredictionTool(ChatbotTool):
-    """Get current cost prediction for the month."""
-    
+    """Get the model's predicted monthly cost from the stored forecast."""
+
     def __init__(self):
         super().__init__(
             name="get_current_prediction",
-            description="Get predicted monthly electricity cost"
+            description="Get the model-predicted monthly electricity cost",
         )
-    
-    def execute(self, household_id: str, tariff_rate: float = 8.0) -> Dict[str, Any]:
-        """Get current month's cost prediction."""
+
+    def execute(self, household_id: str, tariff_rate: float = 8.0,
+                scaling_factor: float = 1.0) -> Dict[str, Any]:
         try:
-            from model import load_data, predict_next_period
-            df = load_data()
-            
-            # Use last day's data for prediction
-            last_day_kwh = float(df.tail(24)['Global_active_power'].sum() / 1000.0)
-            days_in_month = 30  # Approximate
-            predicted_kwh = last_day_kwh * days_in_month
-            predicted_cost = predicted_kwh * tariff_rate
-            
+            from notifications import load_prediction_stats
+            stats = load_prediction_stats(tariff_rate=float(tariff_rate))
+            predicted_cost = round(float(stats["predicted_cost"]) * scaling_factor, 2)
+            predicted_kwh = round(float(stats["predicted_kwh"]) * scaling_factor, 2)
             return {
                 "status": "success",
-                "predicted_monthly_kwh": predicted_kwh,
                 "predicted_monthly_cost_rs": predicted_cost,
-                "tariff_rate": tariff_rate,
-                "basis": "extrapolated from recent usage"
+                "predicted_monthly_kwh": predicted_kwh,
+                "tariff_rate": float(tariff_rate),
+                "month": stats["month"],
+                "basis": "computed from the stored model forecast",
             }
-        
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+
+class GetWeekComparisonTool(ChatbotTool):
+    """Compare the most recent 7 days against the prior 7 days (real data)."""
+
+    def __init__(self):
+        super().__init__(
+            name="get_week_comparison",
+            description="Compare this week's measured usage/cost with the previous week",
+        )
+
+    def execute(self, household_id: str, tariff_rate: float = 8.0,
+                household_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
+        try:
+            from cost import weekly_cost
+            df = _prepare_household_data(household_data)
+            if df.empty or len(df) < 7 * 24:
+                return {"status": "no_data", "message": "not enough data for a weekly comparison"}
+            latest = pd.to_datetime(df["datetime"]).max()
+            this_start = latest - timedelta(days=6)
+            info = weekly_cost(df, str(this_start.date()), float(tariff_rate))
+            # Only claim a comparison if the PRIOR week actually has substantial
+            # measured coverage (a single partial day is not a fair baseline and
+            # would produce a misleading percentage).
+            from datetime import timedelta as _td
+            pws = this_start.date() - _td(days=7)
+            pwe = this_start.date() - _td(days=1)
+            dt_col = pd.to_datetime(df["datetime"])
+            prev_zone = df.loc[(dt_col.dt.date >= pws) & (dt_col.dt.date <= pwe)]
+            prev_days_covered = int(prev_zone["datetime"].dt.date.nunique()) if not prev_zone.empty else 0
+            prev_available = float(info.get("prev_total_kwh") or 0) > 0 and prev_days_covered >= 6
+            return {
+                "status": "success",
+                "this_cost_rs": float(info.get("total_cost") or 0),
+                "this_kwh": float(info.get("total_kwh") or 0),
+                "prev_cost_rs": float(info.get("prev_total_cost") or 0),
+                "prev_kwh": float(info.get("prev_total_kwh") or 0),
+                "pct_change": float(info.get("pct_change") or 0),
+                "prev_available": prev_available,
+                "week_start": info.get("week_start"),
+                "week_end": info.get("week_end"),
+            }
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
 
 class GetOptimizationTipsTool(ChatbotTool):
-    """Get actionable optimization tips from detected anomalies."""
-    
+    """Get tips referencing a specific real usage spike detected in the data."""
+
     def __init__(self):
         super().__init__(
             name="get_optimization_tips",
-            description="Get tips based on detected usage patterns and anomalies"
+            description="Get tips tied to detected spikes in measured appliance usage",
         )
-    
-    def execute(self, household_id: str) -> Dict[str, Any]:
-        """Get optimization tips."""
+
+    def execute(self, household_id: str,
+                household_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
         try:
-            from optimize import detect_anomalies, generate_anomaly_tips
-            from model import load_data
-            
-            df = load_data()
+            from optimize import detect_anomalies
+            df = _prepare_household_data(household_data)
+            if df.empty or len(df) < 7 * 24:
+                return {"status": "no_data", "message": "not enough data to detect patterns"}
+
             anomalies = detect_anomalies(df, window_days=7)
-            
             tips = []
-            if len(anomalies) > 0:
-                tips_generated = generate_anomaly_tips(anomalies.head(3))
-                tips = tips_generated if isinstance(tips_generated, list) else []
-            
+            if isinstance(anomalies, pd.DataFrame) and not anomalies.empty:
+                for _, row in anomalies.tail(3).iterrows():
+                    usage = float(row["Global_active_power"])
+                    mean = float(row["rolling_mean"])
+                    pct = ((usage - mean) / mean * 100.0) if mean else 0.0
+                    tips.append({
+                        "appliance_name": row["top_appliance"],
+                        "current_usage": round(usage, 2),
+                        "avg_usage": round(mean, 2),
+                        "increase_pct": round(pct, 1),
+                        "when": str(row["datetime"]),
+                    })
             return {
                 "status": "success",
-                "anomalies_detected": len(anomalies),
-                "tips": tips[:5],  # Top 5 tips
-                "basis": "detected from real usage data"
+                "anomalies_detected": int(len(anomalies)) if isinstance(anomalies, pd.DataFrame) else 0,
+                "tips": tips,
+                "basis": "detected from real usage data",
             }
-        
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+
+class GetFamilyNotificationLogTool(ChatbotTool):
+    """Query the household's notification audit log (who was sent what)."""
+
+    def __init__(self):
+        super().__init__(
+            name="get_family_notification_log",
+            description="Get the audit log of notifications sent to this household",
+        )
+
+    def execute(self, household_id: str, limit: int = 10) -> Dict[str, Any]:
+        try:
+            log = get_db().get_notification_log(household_id, limit=int(limit))
+            entries = []
+            for row in log:
+                entries.append({
+                    "type": row.get("notification_type") or "unknown",
+                    "recipient": row.get("recipient_email") or "",
+                    "status": row.get("status") or "unknown",
+                    "time": row.get("sent_at") or "",
+                    "subject": row.get("subject") or "",
+                })
+            return {
+                "status": "success",
+                "count": int(len(entries)),
+                "entries": entries,
+            }
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
@@ -195,213 +378,286 @@ class EnergyPulseChatbot:
     Grounded Q&A chatbot that answers questions about household energy.
     All answers are validated against real data before display.
     """
-    
+
     def __init__(self):
-        """Initialize the chatbot with tools."""
         self.db = get_db()
         self.guard = LLMHallucinationGuard()
-        
-        # Define available tools
         self.tools = {
             "get_usage_history": GetUsageHistoryTool(),
             "get_appliance_breakdown": GetApplianceBreakdownTool(),
             "get_current_prediction": GetCurrentPredictionTool(),
+            "get_week_comparison": GetWeekComparisonTool(),
             "get_optimization_tips": GetOptimizationTipsTool(),
+            "get_family_notification_log": GetFamilyNotificationLogTool(),
         }
-    
+
     def answer_question(self, household_id: str, email: str, question: str,
-                       language: str = "en", tariff_rate: float = 8.0) -> Tuple[str, bool, Dict[str, Any]]:
+                        language: str = "en", tariff_rate: float = 8.0,
+                        household_data: Optional[pd.DataFrame] = None,
+                        scaling_factor: float = 1.0) -> Tuple[str, bool, Dict[str, Any]]:
         """
-        Answer a user question about their energy usage.
-        
-        Parameters
-        ----------
-        household_id : str
-            Household identifier
-        email : str
-            User email
-        question : str
-            User's question in natural language
-        language : str
-            User's preferred language
-        tariff_rate : float
-            Electricity rate in Rs/kWh for cost calculations
-        
-        Returns
-        -------
-        Tuple[answer_text, is_valid_grounded, metadata_dict]
-            - answer_text: The chatbot's response (string)
-            - is_valid_grounded: Whether answer was validated against real data
-            - metadata_dict: Tool calls, grounding data, etc. for logging
+        Answer a user question about their own household's energy usage.
+
+        Returns (answer_text, is_valid_grounded, metadata_dict).
         """
-        # Step 1: Determine which tools to call based on question
-        tools_to_call = self._plan_tools(question, language)
-        
-        # Step 2: Execute tools and collect real data
+        self.guard = LLMHallucinationGuard()
+        language = language or "en"
+
+        intent = self._plan_tools(question, language)
+        if intent == "out_of_scope":
+            answer = t_lang("chat_out_of_scope", language)
+            self.db.save_conversation(
+                household_id=household_id, email=email, question=question, answer=answer,
+                language=language, tool_calls=["out_of_scope"], grounding_data={}, is_valid=True,
+            )
+            return (answer, True, {"tool_calls": ["out_of_scope"], "tool_results": {},
+                                   "validation_valid": True, "validation_issues": []})
+
         tool_results = {}
-        for tool_name in tools_to_call:
-            if tool_name in self.tools:
-                try:
-                    if tool_name == "get_current_prediction":
-                        result = self.tools[tool_name].execute(household_id, tariff_rate=tariff_rate)
-                    else:
-                        result = self.tools[tool_name].execute(household_id)
-                    tool_results[tool_name] = result
-                    
-                    # Register extracted numbers with the guard
-                    if isinstance(result, dict) and result.get("status") == "success":
-                        for key, val in result.items():
-                            if isinstance(val, (int, float)):
-                                self.guard.register_tool_result(f"{tool_name}_{key}", val)
-                except Exception as e:
-                    tool_results[tool_name] = {"status": "error", "message": str(e)}
-        
-        # Step 3: Generate answer based on tool results
+        for tool_name in intent:
+            tool = self.tools.get(tool_name)
+            if tool is None:
+                continue
+            try:
+                if tool_name == "get_current_prediction":
+                    result = tool.execute(household_id, tariff_rate=tariff_rate,
+                                          scaling_factor=scaling_factor)
+                elif tool_name == "get_usage_history":
+                    result = tool.execute(household_id, days_back=7, household_data=household_data)
+                elif tool_name == "get_appliance_breakdown":
+                    result = tool.execute(household_id, days_back=7, household_data=household_data)
+                elif tool_name == "get_week_comparison":
+                    result = tool.execute(household_id, tariff_rate=tariff_rate,
+                                          household_data=household_data)
+                elif tool_name == "get_optimization_tips":
+                    result = tool.execute(household_id, household_data=household_data)
+                else:
+                    result = tool.execute(household_id)
+                tool_results[tool_name] = result
+                self._register_tool_result_with_guard(tool_name, result)
+            except Exception as e:  # never let a tool break the conversation
+                tool_results[tool_name] = {"status": "error", "message": str(e)}
+
         answer = self._generate_answer(question, tool_results, language)
-        
-        # Step 4: Validate answer against tool data using LLM guard
-        is_valid, validation_issues, corrected_answer = self.guard.validate_response(
-            answer, language=language
+
+        is_valid, validation_issues, corrected = self.guard.validate_response(answer, language=language)
+        if not is_valid and corrected != answer:
+            answer = corrected
+
+        self.db.save_conversation(
+            household_id=household_id, email=email, question=question, answer=answer,
+            language=language, tool_calls=intent, grounding_data=tool_results,
+            is_valid=is_valid,
         )
-        
-        if not is_valid and corrected_answer:
-            answer = corrected_answer
-        
-        # Step 5: Log conversation
         metadata = {
-            "tool_calls": list(tools_to_call),
+            "tool_calls": intent,
             "tool_results": tool_results,
             "validation_valid": is_valid,
             "validation_issues": validation_issues,
         }
-        
-        self.db.save_conversation(
-            household_id=household_id,
-            email=email,
-            question=question,
-            answer=answer,
-            language=language,
-            tool_calls=tools_to_call,
-            grounding_data=tool_results,
-            is_valid=is_valid
-        )
-        
         return (answer, is_valid, metadata)
-    
+
+    # ── Guard wiring ───────────────────────────────────────
+
+    def _register_tool_result_with_guard(self, tool_name: str, result: Dict[str, Any]) -> None:
+        """Register every real number (plus date/time components) with the guard."""
+        if not isinstance(result, dict) or result.get("status") != "success":
+            return
+        # Mark that grounded tool data exists so the guard's "missing data"
+        # check does not flag answers built from real tool output.
+        self.guard.tool_results[tool_name] = True
+        for key, val in result.items():
+            if isinstance(val, (int, float)):
+                self.guard.register_computed_stat(f"{tool_name}_{key}", float(val))
+            elif isinstance(val, str):
+                # Register numeric components of ISO date/time strings (e.g. "2025-09-10 14:00")
+                # so the validation step recognises them as grounded data, not invented claims.
+                for num in re.findall(r"\d+", val):
+                    self.guard.register_computed_stat(f"{tool_name}_{key}", float(num))
+            elif isinstance(val, dict):
+                for sub_key, sub_val in val.items():
+                    if isinstance(sub_val, (int, float)):
+                        self.guard.register_computed_stat(f"{tool_name}_{key}_{sub_key}", float(sub_val))
+            elif isinstance(val, list):
+                for item in val:
+                    if isinstance(item, dict):
+                        for sub_key, sub_val in item.items():
+                            if isinstance(sub_val, (int, float)):
+                                self.guard.register_computed_stat(f"{tool_name}_{key}_{sub_key}", float(sub_val))
+                            elif isinstance(sub_val, str):
+                                for num in re.findall(r"\d+", sub_val):
+                                    self.guard.register_computed_stat(f"{tool_name}_{key}_{sub_key}", float(num))
+
+    # ── Intent planning ────────────────────────────────────
+
     def _plan_tools(self, question: str, language: str) -> List[str]:
-        """
-        Determine which tools to call based on the question.
-        Keyword matching for now; could be improved with NLU.
-        """
-        question_lower = question.lower()
-        tools = []
-        
-        # Keywords for each tool
-        if any(word in question_lower for word in ['bill', 'cost', 'expensive', 'price', 'rupee', 'rs']):
-            tools.append("get_current_prediction")
-        
-        if any(word in question_lower for word in ['appliance', 'device', 'uses', 'usage', 'which', 'most']):
-            tools.append("get_appliance_breakdown")
-        
-        if any(word in question_lower for word in ['history', 'last', 'day', 'week', 'how much', 'consumption']):
-            tools.append("get_usage_history")
-        
-        if any(word in question_lower for word in ['reduce', 'save', 'optimization', 'lower', 'decrease', 'tips']):
-            tools.append("get_optimization_tips")
-        
-        # Default: try usage history and prediction
+        """Decide which real-data tools to call, driven by the question language."""
+        lower = (question or "").strip().lower()
+        if not lower:
+            return ["get_usage_history", "get_current_prediction"]
+
+        out_kws = _OUT_OF_SCOPE.get(language, _OUT_OF_SCOPE["en"])
+        if any(kw in lower for kw in out_kws):
+            return ["out_of_scope"]
+
+        matched = set()
+        for topic, langs in _QUESTION_TERMS.items():
+            kws = langs.get(language, langs["en"])
+            if any(kw in lower for kw in kws):
+                matched.add(topic)
+
+        # "Why is my bill higher / compare last week" style questions.
+        # When the person explicitly asks about an appliance/category, treat it
+        # as a what-type question instead, so the appliance answer is returned.
+        if "why_compare" in matched and "appliance" not in matched:
+            tools = ["get_week_comparison"]
+            for topic, tool in [
+                ("usage_history", "get_usage_history"),
+                ("appliance", "get_appliance_breakdown"),
+                ("optimize", "get_optimization_tips"),
+                ("notifications", "get_family_notification_log"),
+            ]:
+                if topic in matched and tool not in tools:
+                    tools.append(tool)
+            return tools
+
+        tools: List[str] = []
+        for topic, tool in [
+            ("prediction", "get_current_prediction"),
+            ("usage_history", "get_usage_history"),
+            ("appliance", "get_appliance_breakdown"),
+            ("optimize", "get_optimization_tips"),
+            ("notifications", "get_family_notification_log"),
+        ]:
+            if topic in matched:
+                tools.append(tool)
+
         if not tools:
-            tools = ["get_usage_history", "get_current_prediction"]
-        
-        return list(set(tools))  # Remove duplicates
-    
+            tools = ["get_usage_history", "get_current_prediction", "get_optimization_tips"]
+        return tools
+
+    # ── Answer generation ──────────────────────────────────
+
     def _generate_answer(self, question: str, tool_results: Dict[str, Any],
-                        language: str = "en") -> str:
-        """
-        Generate an answer based on tool results.
-        Only uses real computed data from tool results.
-        Never makes up numbers or guesses.
-        """
-        answer_lines = []
-        
-        # Check if we got any errors
-        has_errors = any(
-            result.get("status") == "error" 
-            for result in tool_results.values()
-        )
-        
-        if not tool_results or all(result.get("status") == "error" for result in tool_results.values()):
-            # No data available
-            honest_response = self._get_honest_response(language)
-            return honest_response
-        
-        # Build answer from available data
-        for tool_name, result in tool_results.items():
-            if result.get("status") != "success":
+                         language: str) -> str:
+        if not tool_results:
+            return t_lang("chat_no_data", language)
+
+        success_results = {k: v for k, v in tool_results.items() if v.get("status") == "success"}
+        if not success_results:
+            return t_lang("chat_no_data", language)
+
+        lines: List[str] = []
+        for tool_name in [
+            "get_week_comparison", "get_usage_history", "get_appliance_breakdown",
+            "get_current_prediction", "get_optimization_tips", "get_family_notification_log",
+        ]:
+            result = success_results.get(tool_name)
+            if result is None:
                 continue
-            
-            if tool_name == "get_usage_history":
-                answer_lines.append(
-                    f"Your usage over the last {result.get('period_days', 7)} days: "
-                    f"{result.get('total_kwh', 0):.2f} kWh (average {result.get('daily_avg_kwh', 0):.2f} kWh/day)"
-                )
-            
-            elif tool_name == "get_appliance_breakdown":
-                top_app = result.get("top_appliance", "").replace("_kwh", "").replace("_", " ")
-                top_usage = result.get("top_appliance_kwh", 0)
-                answer_lines.append(
-                    f"Your top consumer is {top_app} with {top_usage:.2f} kWh. "
-                    f"Total household usage: {result.get('total_kwh', 0):.2f} kWh."
-                )
-            
-            elif tool_name == "get_current_prediction":
-                cost = result.get("predicted_monthly_cost_rs", 0)
-                kwh = result.get("predicted_monthly_kwh", 0)
-                answer_lines.append(
-                    f"Based on recent usage, your predicted monthly cost is Rs. {cost:.2f} "
-                    f"({kwh:.2f} kWh at Rs. {result.get('tariff_rate', 8.0)}/kWh)"
-                )
-            
-            elif tool_name == "get_optimization_tips":
-                tips = result.get("tips", [])
-                if tips:
-                    answer_lines.append("Optimization recommendations:")
-                    for i, tip in enumerate(tips[:3], 1):
-                        if isinstance(tip, str):
-                            answer_lines.append(f"  {i}. {tip}")
-            
-        if not answer_lines:
-            return self._get_honest_response(language)
-        
-        return "\n".join(answer_lines)
-    
-    def _get_honest_response(self, language: str = "en") -> str:
-        """
-        Return an honest response when data isn't available.
-        Never guesses or invents numbers.
-        """
-        responses = {
-            "en": "I don't have enough data to answer that question. Please check back after collecting more usage data.",
-            "hi": "मेरे पास उस सवाल का जवाब देने के लिए पर्याप्त डेटा नहीं है। कृपया अधिक उपयोग डेटा एकत्र करने के बाद वापस जांचें।",
-            "kn": "ಆ ಪ್ರಶ್ನೆಗೆ ಉತ್ತರ ನೀಡಲು ನನ್ನಲ್ಲಿ ಸಾಕಷ್ಟು ಡೇಟಾ ಇಲ್ಲ. ನೀವು ಹೆಚ್ಚಿನ ಬಳಕೆ ಡೇಟಾವನ್ನು ಸಂಗ್ರಹಿಸಿದ ನಂತರ ಮತ್ತೆ ಪರಿಶೀಲಿಸಿ.",
-            "te": "ఆ ప్రశ్నకు సమాధానం ఇవ్వడానికి నా వద్ద తగినంత డేటా లేదు. మీరు మరిన్ని ఉపయోగ డేటాను సేకరించిన తర్వాత తిరిగి తనిఖీ చేయండి.",
-        }
-        return responses.get(language, responses["en"])
-    
+            line = self._render_tool_line(tool_name, result, language)
+            if line:
+                lines.append(line)
+
+        if not lines:
+            return t_lang("chat_no_data", language)
+        return "\n".join(lines)
+
+    def _render_tool_line(self, tool_name: str, result: Dict[str, Any], language: str) -> str:
+        if tool_name == "get_usage_history":
+            return t_lang("chat_usage", language,
+                          days=result.get("period_days", 7),
+                          total_kwh=result.get("total_kwh", 0),
+                          daily_avg=result.get("daily_avg_kwh", 0),
+                          hourly_max=result.get("hourly_max_kw", 0))
+
+        if tool_name == "get_week_comparison":
+            if not result.get("prev_available"):
+                return t_lang("chat_no_prior_week", language)
+            return t_lang("chat_week_compare", language,
+                          this_cost=result.get("this_cost_rs", 0),
+                          this_kwh=result.get("this_kwh", 0),
+                          prev_cost=result.get("prev_cost_rs", 0),
+                          prev_kwh=result.get("prev_kwh", 0),
+                          pct=result.get("pct_change", 0))
+
+        if tool_name == "get_appliance_breakdown":
+            top_label = self._localize_appliance(result.get("top_appliance", "Other"), language)
+            return t_lang("chat_top_appliance", language,
+                          appliance=top_label,
+                          kwh=result.get("top_appliance_kwh", 0),
+                          pct=result.get("top_appliance_pct", 0),
+                          total=result.get("total_kwh", 0),
+                          days=result.get("period_days", 7))
+
+        if tool_name == "get_current_prediction":
+            return t_lang("chat_prediction", language,
+                          month=result.get("month", "N/A"),
+                          cost=result.get("predicted_monthly_cost_rs", 0),
+                          kwh=result.get("predicted_monthly_kwh", 0),
+                          rate=result.get("tariff_rate", 0))
+
+        if tool_name == "get_optimization_tips":
+            tips = result.get("tips") or []
+            if not tips:
+                return t_lang("chat_no_tips", language)
+            tip_lines = []
+            for tip in tips:
+                app_label = self._localize_appliance(tip.get("appliance_name", "Other"), language)
+                tip_lines.append(t_lang("chat_tip_line", language,
+                                        appliance=app_label,
+                                        usage=tip.get("current_usage", 0),
+                                        when=tip.get("when", ""),
+                                        mean=tip.get("avg_usage", 0),
+                                        increase_pct=tip.get("increase_pct", 0)))
+            return "\n".join(tip_lines)
+
+        if tool_name == "get_family_notification_log":
+            entries = result.get("entries") or []
+            if not entries:
+                return t_lang("chat_notif_empty", language)
+            latest = entries[0]
+            summary = (
+                f"{self._localize_notification_type(latest.get('type', ''), language)} → "
+                f"{latest.get('recipient', '')} ({self._localize_status(latest.get('status', ''), language)}, "
+                f"{latest.get('time', '')})"
+            )
+            return t_lang("chat_notif_log", language, n=result.get("count", len(entries)), summary=summary)
+
+        return ""
+
+    def _localize_appliance(self, name: str, language: str) -> str:
+        key = _APPLIANCE_LABEL_KEY.get(name)
+        if key:
+            return t_lang(key, language)
+        return name
+
+    def _localize_notification_type(self, type_name: str, language: str) -> str:
+        key = _NOTIFICATION_TYPE_KEY.get(type_name)
+        if key:
+            return t_lang(key, language)
+        return type_name
+
+    def _localize_status(self, status: str, language: str) -> str:
+        key = "notif_status_sent" if status == "sent" else "notif_status_failed"
+        if status not in ("sent", "failed"):
+            return status
+        return t_lang(key, language)
+
+    # ── History helpers ────────────────────────────────────
+
     def get_conversation_history(self, household_id: str, email: str,
-                                limit: int = 20) -> List[Dict[str, Any]]:
-        """Get recent conversation history for a user."""
+                                 limit: int = 20) -> List[Dict[str, Any]]:
         return self.db.get_conversation_history(household_id, email, limit=limit)
-    
-    def clear_conversation_history(self, household_id: str, email: str) -> bool:
-        """Clear conversation history for a user."""
-        # In a full implementation, add a method to db.py to clear conversations
-        # For now, this is a placeholder
-        return True
+
+    def clear_conversation_history(self, household_id: str, email: str) -> int:
+        """Permanently remove this user's conversation history. Returns rows deleted."""
+        return self.db.clear_conversations(household_id, email)
 
 
 # Singleton instance
 _chatbot = None
+
 
 def get_chatbot() -> EnergyPulseChatbot:
     """Get or create the chatbot singleton."""
