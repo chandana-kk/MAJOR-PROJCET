@@ -834,7 +834,7 @@ _FEATURE_TRANSLATIONS = {
         "notif_howto_step3": "**3.** Copy the 16-character app password (like \"abcd efgh ijkl mnop\").",
         "notif_howto_step4": "**4.** In the project root, edit `.env` (copy from `.env.example` if missing) and set:",
         "notif_howto_step5": "**5.** Save and restart the app. The status here changes to Connected — then use the **Send test** button.",
-        "notif_howto_env": "SMTP_HOST=smtp.gmail.com\nSMTP_PORT=587\nSMTP_USERNAME=your.email@gmail.com\nSMTP_PASSWORD=the-16-character-app-password",
+        "notif_howto_env": "SMTP_HOST=smtp.gmail.com\nSMTP_PORT=587\nSMTP_USERNAME=your_email@gmail.com\nSMTP_PASSWORD=your_app_password_here",
         "notif_howto_alt_title": "Alternative: SendGrid",
         "notif_howto_alt": "Instead of Gmail, set `SENDGRID_API_KEY=<your key>` in `.env` (a free SendGrid account is needed).",
         "notif_history": "Notification history",
@@ -874,6 +874,20 @@ _FEATURE_TRANSLATIONS = {
         "app_laundry": "Laundry Room",
         "app_wh_ac": "Water Heater & AC",
         "app_other": "Other",
+        "preset_ac": "Air Conditioner",
+        "preset_fridge": "Refrigerator",
+        "preset_washing": "Washing Machine",
+        "preset_water_heater": "Water Heater",
+        "preset_tv": "Television",
+        "preset_microwave": "Microwave",
+        "preset_lights": "Lights & Fans",
+        "apptype_cooling": "Cooling",
+        "apptype_heating": "Heating",
+        "apptype_kitchen": "Kitchen",
+        "apptype_laundry": "Laundry",
+        "apptype_electronics": "Electronics",
+        "apptype_lighting": "Lighting",
+        "apptype_other": "Other",
         "notif_type_bill_alert": "Bill alert",
         "notif_type_weekly_summary": "Weekly summary",
         "notif_type_optimization_tip": "Optimization tip",
@@ -937,7 +951,7 @@ _FEATURE_TRANSLATIONS = {
         "notif_howto_step3": "**3.** 16 अक्षरों वाला ऐप पासवर्ड कॉपी करें (जैसे \"abcd efgh ijkl mnop\")।",
         "notif_howto_step4": "**4.** प्रोजेक्ट फ़ोल्डर में `.env` खोलें (न हो तो `.env.example` से कॉपी करें) और यह सेट करें:",
         "notif_howto_step5": "**5.** सहेजें और ऐप पुनः चालू करें। यहाँ स्थिति कनेक्टेड हो जाएगी — फिर **परीक्षण भेजें** बटन का उपयोग करें।",
-        "notif_howto_env": "SMTP_HOST=smtp.gmail.com\nSMTP_PORT=587\nSMTP_USERNAME=your.email@gmail.com\nSMTP_PASSWORD=the-16-character-app-password",
+        "notif_howto_env": "SMTP_HOST=smtp.gmail.com\nSMTP_PORT=587\nSMTP_USERNAME=your_email@gmail.com\nSMTP_PASSWORD=your_app_password_here",
         "notif_howto_alt_title": "विकल्प: SendGrid",
         "notif_howto_alt": "Gmail के बजाय `.env` में `SENDGRID_API_KEY=<आपकी कुंजी>` सेट करें (मुफ़्त SendGrid खाता चाहिए)।",
         "notif_history": "सूचना इतिहास",
@@ -973,10 +987,24 @@ _FEATURE_TRANSLATIONS = {
         "email_footer": "— EnergyPulse (आँकड़े आपके मीटर डेटा से हैं, भेजते समय गढ़े नहीं गए)",
         "email_test_subject": "EnergyPulse परीक्षण सूचना",
         "email_test_body": "परीक्षण {when} पर। वर्तमान मॉडल अनुमान: {month} Rs. {cost:.2f} ({kwh:.2f} kWh)। ये आँकड़े डैशबोर्ड गणना से मेल खाते हैं।",
-        "app_kitchen": "रसोई",
+"app_kitchen": "रसोई",
         "app_laundry": "लॉन्ड्री रूम",
-        "app_wh_ac": "वॉटर हीटर और एसी",
+        "app_wh_ac": "वॉटर हीटर और AC",
         "app_other": "अन्य",
+        "preset_ac": "एयर कंडीशनर",
+        "preset_fridge": "फ्रिज",
+        "preset_washing": "वॉशिंग मशीन",
+        "preset_water_heater": "वॉटर हीटर",
+        "preset_tv": "टेलीविज़न",
+        "preset_microwave": "माइक्रोवेव",
+        "preset_lights": "लाइट और पंखे",
+        "apptype_cooling": "कूलिंग",
+        "apptype_heating": "हीटिंग",
+        "apptype_kitchen": "रसोई",
+        "apptype_laundry": "लॉन्ड्री",
+        "apptype_electronics": "इलेक्ट्रॉनिक्स",
+        "apptype_lighting": "लाइटिंग",
+        "apptype_other": "अन्य",
         "notif_type_bill_alert": "बिल अलर्ट",
         "notif_type_weekly_summary": "साप्ताहिक सारांश",
         "notif_type_optimization_tip": "बचत सुझाव",
@@ -1040,7 +1068,7 @@ _FEATURE_TRANSLATIONS = {
         "notif_howto_step3": "**3.** 16 ಅಕ್ಷರಗಳ ಆ್ಯಪ್ ಪಾಸ್ವರ್ಡ್ ನಕಲಿಸಿ (ಉದಾ \"abcd efgh ijkl mnop\").",
         "notif_howto_step4": "**4.** ಪ್ರಾಜೆಕ್ಟ್ ರೂಟ್‌ನಲ್ಲಿ `.env` ತೆರೆಯಿರಿ (ಇಲ್ಲದಿದ್ದರೆ `.env.example` ನಿಂದ ನಕಲಿಸಿ) ಮತ್ತು ಹೀಗೆ ಹೊಂದಿಸಿ:",
         "notif_howto_step5": "**5.** ಉಳಿಸಿ ಆ್ಯಪ್ ಪುನರಾರಂಭಿಸಿ. ಇಲ್ಲಿ ಸ್ಥಿತಿ ಸಂಪರ್ಕಿಸಲಾಗಿದೆ ಎಂದಾಗುತ್ತದೆ — ನಂತರ **ಪರೀಕ್ಷೆ ಕಳುಹಿಸಿ** ಬಟನ್ ಬಳಸಿ.",
-        "notif_howto_env": "SMTP_HOST=smtp.gmail.com\nSMTP_PORT=587\nSMTP_USERNAME=your.email@gmail.com\nSMTP_PASSWORD=the-16-character-app-password",
+        "notif_howto_env": "SMTP_HOST=smtp.gmail.com\nSMTP_PORT=587\nSMTP_USERNAME=your_email@gmail.com\nSMTP_PASSWORD=your_app_password_here",
         "notif_howto_alt_title": "ಪರ್ಯಾಯ: SendGrid",
         "notif_howto_alt": "Gmail ಬದಲಿಗೆ `.env` ನಲ್ಲಿ `SENDGRID_API_KEY=<ನಿಮ್ಮ ಕೀ>` ಹೊಂದಿಸಿ (ಉಚಿತ SendGrid ಖಾತೆ ಬೇಕು).",
         "notif_history": "ಅಧಿಸೂಚನೆ ಇತಿಹಾಸ",
@@ -1080,6 +1108,20 @@ _FEATURE_TRANSLATIONS = {
         "app_laundry": "ಲಾಂಡ್ರಿ ರೂಂ",
         "app_wh_ac": "ವಾಟರ್ ಹೀಟರ್ ಮತ್ತು AC",
         "app_other": "ಇತರೆ",
+        "preset_ac": "ಏರ್ ಕಂಡೀಷನರ್",
+        "preset_fridge": "ರೆಫ್ರಿಜರೇಟರ್",
+        "preset_washing": "ವಾಶಿಂಗ್ ಮೆಷಿನ್",
+        "preset_water_heater": "ವಾಟರ್ ಹೀಟರ್",
+        "preset_tv": "ಟೆಲಿವಿಷನ್",
+        "preset_microwave": "ಮೈಕ್ರೋವೇವ್",
+        "preset_lights": "ಲೈಟ್ ಮತ್ತು ಫ್ಯಾನ್‌ಗಳು",
+        "apptype_cooling": "ಕೂಲಿಂಗ್",
+        "apptype_heating": "ಹೀಟಿಂಗ್",
+        "apptype_kitchen": "ಅಡುಗೆಮನೆ",
+        "apptype_laundry": "ಲಾಂಡ್ರಿ",
+        "apptype_electronics": "ಎಲೆಕ್ಟ್ರಾನಿಕ್ಸ್",
+        "apptype_lighting": "ಲೈಟಿಂಗ್",
+        "apptype_other": "ಇತರೆ",
         "notif_type_bill_alert": "ಬಿಲ್ ಎಚ್ಚರಿಕೆ",
         "notif_type_weekly_summary": "ಸಾಪ್ತಾಹಿಕ ಸಾರಾಂಶ",
         "notif_type_optimization_tip": "ಉಳಿತಾಯ ಸಲಹೆ",
@@ -1143,7 +1185,7 @@ _FEATURE_TRANSLATIONS = {
         "notif_howto_step3": "**3.** 16 అక్షరాల యాప్ పాస్వర్డ్ కాపీ చేయండి (ఉదా \"abcd efgh ijkl mnop\").",
         "notif_howto_step4": "**4.** ప్రాజెక్ట్ రూట్‌లో `.env` తెరవండి (లేకపోతే `.env.example` నుండి కాపీ చేయండి) మరియు ఇలా సెట్ చేయండి:",
         "notif_howto_step5": "**5.** సేవ్ చేసి యాప్‌ను పునఃప్రారంభించండి. ఇక్కడ స్థితి కనెక్ట్ అయింది అవుతుంది — ఆపై **పరీక్ష పంపు** బటన్ ఉపయోగించండి.",
-        "notif_howto_env": "SMTP_HOST=smtp.gmail.com\nSMTP_PORT=587\nSMTP_USERNAME=your.email@gmail.com\nSMTP_PASSWORD=the-16-character-app-password",
+        "notif_howto_env": "SMTP_HOST=smtp.gmail.com\nSMTP_PORT=587\nSMTP_USERNAME=your_email@gmail.com\nSMTP_PASSWORD=your_app_password_here",
         "notif_howto_alt_title": "ప్రత్యామ్నాయం: SendGrid",
         "notif_howto_alt": "Gmail బదులు `.env` లో `SENDGRID_API_KEY=<మీ కీ>` సెట్ చేయండి (ఉచిత SendGrid ఖాతా అవసరం).",
         "notif_history": "నోటిఫికేషన్ చరిత్ర",
@@ -1183,6 +1225,20 @@ _FEATURE_TRANSLATIONS = {
         "app_laundry": "లాండ్రీ గది",
         "app_wh_ac": "వాటర్ హీటర్ మరియు AC",
         "app_other": "ఇతర",
+        "preset_ac": "ఎయిర్ కండిషనర్",
+        "preset_fridge": "రిఫ్రిజిరేటర్",
+        "preset_washing": "వాషింగ్ మెషిన్",
+        "preset_water_heater": "వాటర్ హీటర్",
+        "preset_tv": "టెలివిజన్",
+        "preset_microwave": "మైక్రోవేవ్",
+        "preset_lights": "లైట్లు & ఫ్యాన్లు",
+        "apptype_cooling": "కూలింగ్",
+        "apptype_heating": "హీటింగ్",
+        "apptype_kitchen": "వంటగది",
+        "apptype_laundry": "లాండ్రీ",
+        "apptype_electronics": "ఎలక్ట్రానిక్స్",
+        "apptype_lighting": "లైటింగ్",
+        "apptype_other": "ఇతర",
         "notif_type_bill_alert": "బిల్ హెచ్చరిక",
         "notif_type_weekly_summary": "వారం సారాంశం",
         "notif_type_optimization_tip": "ఆదా సూచన",
@@ -1243,3 +1299,138 @@ def home_type_label(value):
     if value in HOME_TYPES:
         return TLIST("home_types")[HOME_TYPES.index(value)]
     return value
+
+
+# ── Appliance names (stored in English, displayed localized) ─────────────
+# Data layer keeps canonical English names so billing/anomaly math and
+# cross-language storage stay stable; only presentation is translated.
+APPLIANCE_CATEGORY_KEYS = {
+    "Kitchen": "app_kitchen",
+    "Laundry Room": "app_laundry",
+    "Water Heater & AC": "app_wh_ac",
+    "Other": "app_other",
+}
+
+APPLIANCE_PRESET_KEYS = {
+    "Air Conditioner": "preset_ac",
+    "Refrigerator": "preset_fridge",
+    "Washing Machine": "preset_washing",
+    "Water Heater": "preset_water_heater",
+    "Television": "preset_tv",
+    "Microwave": "preset_microwave",
+    "Lights & Fans": "preset_lights",
+    "Other": "app_other",
+}
+
+APPLIANCE_TYPE_KEYS = {
+    "Cooling": "apptype_cooling",
+    "Heating": "apptype_heating",
+    "Kitchen": "apptype_kitchen",
+    "Laundry": "apptype_laundry",
+    "Electronics": "apptype_electronics",
+    "Lighting": "apptype_lighting",
+    "Other": "apptype_other",
+}
+
+
+def localized_appliance_category(name, language=None):
+    """Localize a stored appliance category name (Kitchen / Laundry / WH & AC / Other)."""
+    key = APPLIANCE_CATEGORY_KEYS.get(name)
+    if key:
+        return t_lang(key, language=language)
+    return name
+
+
+def localized_appliance_label(name, language=None):
+    """Localize any stored appliance name (category or preset)."""
+    if name in APPLIANCE_CATEGORY_KEYS:
+        return t_lang(APPLIANCE_CATEGORY_KEYS[name], language=language)
+    if name in APPLIANCE_PRESET_KEYS:
+        return t_lang(APPLIANCE_PRESET_KEYS[name], language=language)
+    return name
+
+
+def localized_appliance_type(value, language=None):
+    """Localize a stored appliance type (Cooling / Heating / ... )."""
+    key = APPLIANCE_TYPE_KEYS.get(value)
+    if key:
+        return t_lang(key, language=language)
+    return value
+
+
+# ── Family relationships (stored as canonical codes, displayed localized) ──
+RELATIONSHIP_CODES = ["Spouse", "Parent", "Child", "Sibling", "Other"]
+_RELATIONSHIP_KEYS = {
+    "Spouse": "rel_spouse",
+    "Parent": "rel_parent",
+    "Child": "rel_child",
+    "Sibling": "rel_sibling",
+    "Other": "rel_other",
+}
+
+
+def localized_relationship(code, language=None):
+    """Localize a stored canonical relationship code for display."""
+    key = _RELATIONSHIP_KEYS.get(code)
+    if key:
+        return t_lang(key, language=language)
+    return code or t_lang("rel_other", language=language)
+
+
+def relationship_code_from_label(label, language=None):
+    """Resolve any stored relationship value back to a canonical code.
+
+    Handles canonical codes and legacy values that were saved as a localized
+    label in any of the four supported languages.
+    """
+    if label is None:
+        return "Other"
+    if label in _RELATIONSHIP_KEYS:
+        return label
+    for lang in ("en", "hi", "kn", "te"):
+        for code in RELATIONSHIP_CODES:
+            if t_lang(_RELATIONSHIP_KEYS[code], language=lang) == label:
+                return code
+    return "Other"
+
+
+def preset_choices(language=None):
+    """[(localized_label, canonical_english_name)] for onboarding chooser."""
+    return [
+        (t_lang(key, language=language), name)
+        for name, key in APPLIANCE_PRESET_KEYS.items()
+    ]
+
+
+def format_localized_month(date_value, language=None):
+    """
+    Format a month as "<localized month> <year>" for the given language
+    (defaults to the session language, like T()). Accepts a pd.Timestamp /
+    datetime / date, or an English "%B %Y" string.
+    """
+    if date_value is None:
+        return ""
+    import datetime as _dt
+    import pandas as _pd
+    try:
+        if isinstance(date_value, str):
+            try:
+                dt = _dt.datetime.strptime(date_value, "%B %Y")
+            except ValueError:
+                dt = _pd.Timestamp(date_value).to_pydatetime()
+        else:
+            dt = _pd.Timestamp(date_value).to_pydatetime()
+        lang = language
+        if lang is None:
+            try:
+                lang = st.session_state.get("lang", _FALLBACK_LANG)
+            except Exception:
+                lang = _FALLBACK_LANG
+        months_list = TRANSLATIONS.get(lang, {}).get("months")
+        if not months_list:
+            months_list = TRANSLATIONS[_FALLBACK_LANG].get("months", [])
+        if months_list and len(months_list) >= 12:
+            return f"{months_list[dt.month - 1]} {dt.year}"
+        return dt.strftime("%B %Y")
+    except Exception:
+        return str(date_value)

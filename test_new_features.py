@@ -13,6 +13,16 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
+# Windows consoles default to cp1252, which cannot encode the ✓/✗ check marks
+# used below. Force UTF-8 output so the suite runs unchanged everywhere.
+for _stream_name in ("stdout", "stderr"):
+    _stream = getattr(sys, _stream_name, None)
+    if _stream is not None and hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            pass
+
 def test_database():
     """Test database layer."""
     print("\n" + "="*60)

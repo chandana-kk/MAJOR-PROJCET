@@ -276,9 +276,9 @@ def predict_next_period(row_dict, xgb_model, lstm_model, scaler, recent_df):
     xgb_pred = float(xgb_model.predict(feat_df)[0])
 
     if len(recent_df) >= WINDOW_SIZE:
-        window_data = recent_df[FEATURE_COLS + [TARGET]].tail(WINDOW_SIZE).values
+        window_data = recent_df[FEATURE_COLS + [TARGET]].tail(WINDOW_SIZE)
         scaled = scaler.transform(window_data)
-        lstm_input = scaled.reshape(1, WINDOW_SIZE, -1)
+        lstm_input = scaled.values.reshape(1, WINDOW_SIZE, -1)
         lstm_pred = float(lstm_model.predict(lstm_input, verbose=0)[0][0])
     else:
         lstm_pred = xgb_pred

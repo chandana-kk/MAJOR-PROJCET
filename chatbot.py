@@ -27,7 +27,7 @@ from datetime import datetime, timedelta
 
 from db import get_db
 from llm_guard import LLMHallucinationGuard
-from i18n import t_lang
+from i18n import t_lang, format_localized_month
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -592,7 +592,7 @@ class EnergyPulseChatbot:
 
         if tool_name == "get_current_prediction":
             return t_lang("chat_prediction", language,
-                          month=result.get("month", "N/A"),
+                          month=format_localized_month(result.get("month", "N/A"), language),
                           cost=result.get("predicted_monthly_cost_rs", 0),
                           kwh=result.get("predicted_monthly_kwh", 0),
                           rate=result.get("tariff_rate", 0))

@@ -34,3 +34,14 @@ energypulse.db
 *.pkl
 *.keras
 *.h5
+
+# Raw UCI dataset (~127 MB — exceeds GitHub's 100 MB per-file limit).
+# Regenerate anytime with: python data.py (auto-downloads).
+data/household_power_consumption.txt
+
+# Runtime logs (accidentally committed earlier; kept out of the repo now)
+app_*.log
+stderr*.txt
+stdout*.txt
+streamlit_log.txt
+*.err.log

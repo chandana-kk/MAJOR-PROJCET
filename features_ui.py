@@ -20,7 +20,7 @@ from typing import Optional, Dict, Any
 import streamlit as st
 
 from db import get_db
-from i18n import T, t_lang, LANGS
+from i18n import T, t_lang, LANGS, RELATIONSHIP_CODES, localized_relationship, relationship_code_from_label, format_localized_month
 from notifications import get_notification_service, dispatch_household_alerts
 from chatbot import get_chatbot
 from cost import next_month_cost
@@ -94,21 +94,20 @@ def render_family_tab(db, household_id: str) -> None:
         st.info(T("fam_none"))
     for member in members:
         m_id = int(member["id"])
+        rel_code = relationship_code_from_label(member.get("relationship"))
         with st.expander(
-            f"{member['name']} ({member.get('relationship') or T('rel_other')}, {member['email']})",
+            f"{member['name']} ({localized_relationship(rel_code)}, {member['email']})",
             key=f"fam_exp_{m_id}",
         ):
             c1, c2 = st.columns(2)
             with c1:
                 name = st.text_input(T("fam_name"), value=member["name"], key=f"fam_name_{m_id}")
             with c2:
-                rel_options = [T("rel_spouse"), T("rel_parent"), T("rel_child"),
-                               T("rel_sibling"), T("rel_other")]
-                rel_current = member.get("relationship") or T("rel_other")
-                try:
-                    rel_index = rel_options.index(rel_current)
-                except ValueError:
-                    rel_index = len(rel_options) - 1
+                rel_options = [localized_relationship(code) for code in RELATIONSHIP_CODES]
+                rel_code_by_label = {
+                    localized_relationship(code): code for code in RELATIONSHIP_CODES
+                }
+                rel_index = RELATIONSHIP_CODES.index(rel_code)
                 relationship = st.selectbox(T("fam_relationship"), rel_options,
                                             index=rel_index, key=f"fam_rel_{m_id}")
             c3, c4 = st.columns(2)
@@ -139,7 +138,7 @@ def render_family_tab(db, household_id: str) -> None:
                 if st.button(T("fam_save"), key=f"fam_save_{m_id}", type="primary"):
                     ok, msg = db.update_family_member(m_id, household_id, {
                         "name": name,
-                        "relationship": relationship,
+                        "relationship": relationship_code_from_label(relationship),
                         "email": email,
                         "phone": phone,
                         "preferred_language": _code_from_name(lang_sel),
@@ -164,9 +163,11 @@ def render_family_tab(db, household_id: str) -> None:
         with c1:
             new_name = st.text_input(T("fam_name"), key="fam_new_name")
         with c2:
+            rel_code_by_label = {
+                localized_relationship(code): code for code in RELATIONSHIP_CODES
+            }
             new_rel = st.selectbox(T("fam_relationship"),
-                                   [T("rel_spouse"), T("rel_parent"), T("rel_child"),
-                                    T("rel_sibling"), T("rel_other")],
+                                   [localized_relationship(code) for code in RELATIONSHIP_CODES],
                                    key="fam_new_rel")
         c3, c4 = st.columns(2)
         with c3:
@@ -184,7 +185,7 @@ def render_family_tab(db, household_id: str) -> None:
             ok, msg = db.add_family_member(
                 household_id=household_id,
                 name=new_name,
-                relationship=new_rel,
+                relationship=rel_code_by_label.get(new_rel, "Other"),
                 email=new_email,
                 phone=new_phone,
                 preferred_language=_code_from_name(new_lang),

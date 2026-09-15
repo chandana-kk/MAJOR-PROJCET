@@ -14,6 +14,7 @@ re-queried from family_members at send time.
 """
 
 import os
+import re
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -24,7 +25,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from db import get_db
-from i18n import t_lang
+from i18n import t_lang, format_localized_month, localized_appliance_label
 
 
 def _round2(value: float) -> float:
@@ -34,15 +35,20 @@ def _round2(value: float) -> float:
 class NotificationService:
     """Sends notifications via email and optional SMS. Never raises to callers."""
 
-    # Values that ship in .env.example and must NOT count as "configured".
+    # Values that ship in .env.example (or appear in the in-app setup guide)
+    # and must NOT count as "configured".
     _PLACEHOLDERS = {
         "your_sendgrid_api_key_here",
         "your_app_password_here",
         "your_account_sid_here",
         "your_auth_token_here",
         "your_email@gmail.com",
+        "your.email@gmail.com",
+        "the-16-character-app-password",
         "noreply@energypulse.local",
     }
+    # Belt-and-braces: reject anything that is still clearly an example value.
+    _PLACEHOLDER_RE = re.compile(r"(your[_.]|changeme|placeholder|_here$)", re.IGNORECASE)
 
     def __init__(self):
         # Env is read at construction time (fresh on every app restart), so a
@@ -67,7 +73,14 @@ class NotificationService:
     @staticmethod
     def _real(value: Optional[str]) -> bool:
         """True only when a value is present AND not an .env.example placeholder."""
-        return bool(value) and str(value).strip() not in NotificationService._PLACEHOLDERS
+        if not value:
+            return False
+        s = str(value).strip()
+        if s in NotificationService._PLACEHOLDERS:
+            return False
+        if NotificationService._PLACEHOLDER_RE.search(s):
+            return False
+        return True
 
     def _init_email_backend(self):
         key = (self.SENDGRID_API_KEY or "").strip()
@@ -148,13 +161,14 @@ class NotificationService:
         )
         sent_to = []
         for email, name, lang, phone in recipients:
+            month_lbl = format_localized_month(month, lang)
             if threshold is not None:
                 body_core = t_lang(
-                    "email_bill_body", lang, month=month, cost=predicted_cost, threshold=threshold
+                    "email_bill_body", lang, month=month_lbl, cost=predicted_cost, threshold=threshold
                 )
             else:
-                body_core = t_lang("email_bill_body_no_th", lang, month=month, cost=predicted_cost)
-            subject = t_lang("email_bill_subject", lang, month=month)
+                body_core = t_lang("email_bill_body_no_th", lang, month=month_lbl, cost=predicted_cost)
+            subject = t_lang("email_bill_subject", lang, month=month_lbl)
             body = self._compose(name, body_core, lang)
             ok, err = self._deliver(email, subject, body, phone)
             self.db.log_notification(
@@ -239,10 +253,11 @@ class NotificationService:
         )
         sent_to = []
         for email, name, lang, phone in recipients:
-            subject = t_lang("email_tip_subject", lang, appliance=appliance)
+            appliance_lbl = localized_appliance_label(appliance, lang)
+            subject = t_lang("email_tip_subject", lang, appliance=appliance_lbl)
             body_core = t_lang(
                 "email_tip_body", lang,
-                appliance=appliance, current=current, avg=avg,
+                appliance=appliance_lbl, current=current, avg=avg,
                 increase_pct=increase, when=when,
             )
             body = self._compose(name, body_core, lang)
@@ -282,10 +297,11 @@ class NotificationService:
             predicted_cost = _round2(predicted_cost)
             predicted_kwh = _round2(predicted_kwh or 0)
             when = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            month_lbl = format_localized_month(month, language)
             subject = t_lang("email_test_subject", language)
             body_core = t_lang(
                 "email_test_body", language,
-                when=when, month=month, cost=predicted_cost, kwh=predicted_kwh,
+                when=when, month=month_lbl, cost=predicted_cost, kwh=predicted_kwh,
             )
             body = self._compose("EnergyPulse user", body_core, language)
             ok, err = self._deliver(recipient_email, subject, body, None)
@@ -395,13 +411,26 @@ class NotificationService:
 
 
 def load_prediction_stats(tariff_rate: float = 8.0) -> Dict[str, Any]:
-    """Load predicted monthly cost from the stored forecast CSV (same as the dashboard)."""
+    """Load predicted monthly cost from the stored forecast CSV (same as the dashboard).
+
+    The forecast is stored for the month after the raw dataset ends (Dec 2010),
+    so it is shifted onto the current dates exactly like the dashboard does
+    before the monthly cost is computed — otherwise "next month" would read as
+    "December 2010".
+    """
     import os
     import pandas as pd
     from cost import next_month_cost
+    from model import load_data
+    from data import remap_to_current_dates, shift_forecast_to_current_dates
     path = os.path.join("data", "next_month_forecast.csv")
     if os.path.exists(path):
         forecast_df = pd.read_csv(path, parse_dates=["datetime"])
+        raw = load_data()
+        if raw is not None and not raw.empty and "datetime" in raw.columns:
+            current = remap_to_current_dates(raw, last_n_days=90)
+            if current is not None and not current.empty:
+                forecast_df = shift_forecast_to_current_dates(forecast_df, raw, current)
         info = next_month_cost(forecast_df, tariff_rate)
         return {
             "predicted_cost": _round2(info.get("total_cost") or 0),

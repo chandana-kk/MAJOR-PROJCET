@@ -31,8 +31,8 @@ from model import (
     load_data, predict_next_period,
     FEATURE_COLS, TARGET, WINDOW_SIZE,
 )
-from data import remap_to_current_dates
-from i18n import T, TLIST, LANGS, HOME_TYPES, home_type_label
+from data import remap_to_current_dates, shift_forecast_to_current_dates
+from i18n import T, TLIST, LANGS, HOME_TYPES, home_type_label, localized_appliance_category, localized_appliance_label, localized_appliance_type, format_localized_month
 from db import get_db
 from features_ui import render_family_tab, render_notifications_tab, render_chat_tab, ensure_login
 
@@ -712,16 +712,21 @@ def _render_onboard_step2(od):
     appliances = od.get("appliances", [])
     if appliances:
         for i, app in enumerate(appliances):
+            if not isinstance(app, dict):
+                app = {"name": str(app), "type": "Other", "usage": "Medium", "icon": "⚙️"}
+            app_name = localized_appliance_label(app.get("name", ""), st.session_state.get("lang", "en"))
+            app_type = localized_appliance_type(app.get("type", ""), st.session_state.get("lang", "en"))
             cols = st.columns([0.3, 2, 2, 0.3])
             with cols[0]:
                 st.markdown(f'<div style="text-align:center;font-size:1.2rem;margin-top:0.3rem;">{app.get("icon", "⚙️")}</div>', unsafe_allow_html=True)
             with cols[1]:
-                st.markdown(f'<div style="font-size:0.85rem;font-weight:600;color:#1A1A1A;">{app["name"]}</div>', unsafe_allow_html=True)
-                st.markdown(f'<div style="font-size:0.72rem;color:#6B7280;">{app["type"]}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="font-size:0.85rem;font-weight:600;color:#1A1A1A;">{app_name}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="font-size:0.72rem;color:#6B7280;">{app_type}</div>', unsafe_allow_html=True)
             with cols[2]:
                 usage = st.select_slider(T("typical_usage"), options=["Low", "Medium", "High"],
                     value=app.get("usage", "Medium"), key=f"app_usage_{i}")
-                od["appliances"][i]["usage"] = usage
+                if isinstance(app, dict) and i < len(od["appliances"]):
+                    od["appliances"][i]["usage"] = usage
             with cols[3]:
                 if st.button("✕", key=f"app_del_{i}"):
                     od["appliances"].pop(i)
@@ -730,25 +735,38 @@ def _render_onboard_step2(od):
     with st.expander(T("add_appliance_expander"), expanded=not appliances):
         add_cols = st.columns([2, 2, 1])
         with add_cols[0]:
-            preset_names = [p[0] for p in APPLIANCE_PRESETS]
-            chosen = st.selectbox(T("appliance_label"), preset_names + [T("custom_option")], key="ob_app_preset")
+            preset_pairs = [
+                (localized_appliance_label(p_name), p_name) for p_name, _ in APPLIANCE_PRESETS
+            ]
+            preset_label_to_name = dict(preset_pairs)
+            options = [label for label, _ in preset_pairs] + [T("custom_option")]
+            chosen = st.selectbox(T("appliance_label"), options, key="ob_app_preset")
             custom_name = ""
             if chosen == T("custom_option"):
                 custom_name = st.text_input(T("name_label"), placeholder=T("name_ph"), key="ob_app_custom")
         with add_cols[1]:
-            app_type = st.selectbox(T("category_label"),
-                ["Cooling", "Heating", "Kitchen", "Laundry", "Electronics", "Lighting", "Other"],
+            type_options = ["Cooling", "Heating", "Kitchen", "Laundry", "Electronics", "Lighting", "Other"]
+            app_type = st.selectbox(
+                T("category_label"),
+                [localized_appliance_type(t) for t in type_options],
                 key="ob_app_type")
+            type_label_to_value = {
+                localized_appliance_type(t): t for t in type_options
+            }
         with add_cols[2]:
             st.markdown('<div style="margin-top:1.8rem;"></div>', unsafe_allow_html=True)
             if st.button(T("btn_add"), key="ob_add_app", type="primary"):
-                name = custom_name if chosen == T("custom_option") and custom_name else chosen
+                if chosen == T("custom_option"):
+                    name = custom_name if custom_name else T("custom_option")
+                else:
+                    name = preset_label_to_name.get(chosen, chosen)
+                canonical_type = type_label_to_value.get(app_type, "Other")
                 icon = "⚙️"
                 for p_name, p_icon in APPLIANCE_PRESETS:
-                    if p_name == chosen:
+                    if p_name == name:
                         icon = p_icon
                         break
-                od["appliances"].append({"name": name, "type": app_type, "usage": "Medium", "icon": icon})
+                od["appliances"].append({"name": name, "type": canonical_type, "usage": "Medium", "icon": icon})
                 st.rerun()
     st.markdown("")
     c_back, c_next = st.columns([1, 1])
@@ -853,8 +871,14 @@ def render_sidebar():
         st.markdown(f'<div class="sb-section-label">{T("sb_section_appliances")}</div>', unsafe_allow_html=True)
         if appliances:
             tags_html = ""
+            lang = st.session_state.get("lang", "en")
             for app in appliances:
-                tags_html += f'<span class="sb-appliance-tag">{app.get("icon", "")} {app["name"]}</span>'
+                if not isinstance(app, dict):
+                    app = {"name": str(app), "type": "Other", "icon": "⚙️"}
+                tags_html += (f'<span class="sb-appliance-tag">{app.get("icon", "")} '
+                              f'{localized_appliance_label(app.get("name", ""), lang)}'
+                              f'<span style="opacity:0.55;"> · '
+                              f'{localized_appliance_type(app.get("type", ""), lang)}</span></span>')
             st.markdown(f"""
         <div class="sb-card">
             <div style="display:flex;flex-wrap:wrap;gap:3px;">{tags_html}</div>
@@ -1239,10 +1263,7 @@ def _main_dashboard_inner():
 
     full_data = remap_to_current_dates(raw_data, last_n_days=90)
     if not forecast_df.empty:
-        forecast_df = forecast_df.copy()
-        forecast_df["datetime"] = forecast_df["datetime"] + (
-            full_data["datetime"].max() - raw_data["datetime"].max()
-        )
+        forecast_df = shift_forecast_to_current_dates(forecast_df, raw_data, full_data)
 
     full_data = full_data.copy()
     full_data["Global_active_power"] = full_data["Global_active_power"] * sf
@@ -1350,7 +1371,7 @@ def _main_dashboard_inner():
                     css_class="mc-purple")
         metric_card(c5, label=T("card_next_month"),
                     value=f"Rs. {fmt_rs(nm_info['total_cost'])}",
-                    sub=T("card_projected_for", month=nm_info['month']),
+                    sub=T("card_projected_for", month=format_localized_month(nm_info['month'])),
                     trend_text="", trend_dir="neutral", css_class="mc-rose")
 
         st.markdown("")
@@ -1414,6 +1435,8 @@ def _main_dashboard_inner():
                 app_start = app_end = pd.Timestamp.now()
             app_df = get_appliance_breakdown(full_data, str(app_start.date()), str(app_end.date()))
             if not app_df.empty and app_df["Wh"].sum() > 0:
+                app_df = app_df.copy()
+                app_df["Appliance"] = app_df["Appliance"].map(localized_appliance_category)
                 fig_pie = px.pie(app_df, names="Appliance", values="Wh",
                     color_discrete_sequence=["#4A6741", "#6B8F5E", "#C4944A", "#9CA3AF"], hole=0.55)
                 total_wh = app_df["Wh"].sum()
@@ -1440,7 +1463,7 @@ def _main_dashboard_inner():
                 peak_cost = hd.loc[hd["is_peak"], "cost"].sum()
                 off_cost = hd.loc[~hd["is_peak"], "cost"].sum()
                 cost_df = pd.DataFrame({T("df_column_period"): [T("peak_hours_lbl"), T("offpeak_hours_lbl")], "Cost": [peak_cost, off_cost]})
-                fig_cost = px.pie(cost_df, names="Period", values="Cost",
+                fig_cost = px.pie(cost_df, names=cost_df.columns[0], values="Cost",
                     color_discrete_sequence=["#B45050", "#4A6741"], hole=0.55)
                 fig_cost.update_layout(**PLOTLY_LAYOUT(height=340, showlegend=True,
                     legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5)))
@@ -1456,12 +1479,20 @@ def _main_dashboard_inner():
         section(T("sec_ways_save"), "\U0001f4a1")
         if not history.empty and len(history) > 100:
             anomalies = detect_anomalies(history)
-            tips = generate_anomaly_tips(anomalies, tariff_rate, translate_fn=T)
+
+            def _tip_t(key, **kwargs):
+                if "appliance" in kwargs:
+                    kwargs["appliance"] = localized_appliance_category(kwargs["appliance"])
+                return T(key, **kwargs)
+
+            tips = generate_anomaly_tips(anomalies, tariff_rate, translate_fn=_tip_t)
             for tip in tips:
                 st.markdown(f'<div class="tip-box">{tip}</div>', unsafe_allow_html=True)
             if not anomalies.empty:
+                anom_disp = anomalies.copy()
+                anom_disp["top_appliance"] = anom_disp["top_appliance"].map(localized_appliance_category)
                 with st.expander(T("expander_anomalies", n=len(anomalies))):
-                    st.dataframe(anomalies[["datetime", "hour", "Global_active_power",
+                    st.dataframe(anom_disp[["datetime", "hour", "Global_active_power",
                                              "rolling_mean", "threshold", "top_appliance"]],
                                  width="stretch", hide_index=True)
         else:

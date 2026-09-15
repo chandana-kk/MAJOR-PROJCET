@@ -218,6 +218,46 @@ def remap_to_current_dates(df: pd.DataFrame, last_n_days: int = 90) -> pd.DataFr
     return df
 
 
+def shift_forecast_to_current_dates(forecast_df: pd.DataFrame, source_raw_df: pd.DataFrame,
+                                    current_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Shift a forecast DataFrame's datetimes so "next month" lands after the
+    current (remapped) measurements — exactly the rule the dashboard uses.
+
+    The stored forecast covers the month after the raw dataset ends (Dec 2010
+    vs Nov 2010). Without this shift, "next month" reads as "December 2010".
+    The offset is `current_df.max - source_raw_df.max`, i.e. the same shift
+    `remap_to_current_dates` applied to the real measurements.
+
+    Parameters
+    ----------
+    forecast_df : pd.DataFrame
+        Forecast rows with a 'datetime' column.
+    source_raw_df : pd.DataFrame
+        The cleaned dataset with original (un-remapped) datetimes.
+    current_df : pd.DataFrame
+        The same data after remapping to current dates (or the dashboard's
+        `full_data`).
+
+    Returns
+    -------
+    pd.DataFrame (a copy) with shifted datetimes, or the input unchanged if
+    required inputs/columns are missing.
+    """
+    need = ["datetime"]
+    if (forecast_df is None or forecast_df.empty
+            or source_raw_df is None or source_raw_df.empty
+            or current_df is None or current_df.empty
+            or not all(c in forecast_df.columns for c in need)
+            or not all(c in source_raw_df.columns for c in need)
+            or not all(c in current_df.columns for c in need)):
+        return forecast_df
+    out = forecast_df.copy()
+    shift = pd.to_datetime(current_df["datetime"].max()) - pd.to_datetime(source_raw_df["datetime"].max())
+    out["datetime"] = pd.to_datetime(out["datetime"]) + shift
+    return out
+
+
 def main():
     """Full pipeline: download -> clean -> resample -> feature engineer -> remap -> save."""
     download_dataset()
