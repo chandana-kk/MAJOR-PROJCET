@@ -265,25 +265,86 @@ def next_month_forecast(xgb_model, df: pd.DataFrame) -> pd.DataFrame:
     return forecast_df
 
 
-def predict_next_period(row_dict, xgb_model, lstm_model, scaler, recent_df):
+def _as_float(value, default=0.0):
+    """Coerce anything (None/NaN/str) into a finite float."""
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not np.isfinite(out):
+        return default
+    return out
+
+
+def _feature_frame(row_dict):
+    """Build a single-row feature frame with numeric, finite values."""
+    data = {col: _as_float(row_dict.get(col, 0.0)) for col in FEATURE_COLS}
+    return pd.DataFrame([data], columns=FEATURE_COLS)
+
+
+def _lstm_window(recent_df):
+    """
+    Return the last WINDOW_SIZE rows as a float frame, or (None, reason) if
+    the window cannot be used.
+
+    The scaler was fitted on FEATURE_COLS + [TARGET] in that exact order, so
+    the window must be built the same way and must be exactly WINDOW_SIZE long.
+    """
+    if recent_df is None or not isinstance(recent_df, pd.DataFrame):
+        return None, "no_history"
+    needed = FEATURE_COLS + [TARGET]
+    missing = [c for c in needed if c not in recent_df.columns]
+    if missing:
+        return None, "missing_columns:" + ",".join(missing[:3])
+    if len(recent_df) < WINDOW_SIZE:
+        return None, "insufficient_history"
+    window = recent_df[needed].tail(WINDOW_SIZE)
+    if window.isna().any().any():
+        return None, "non_finite_history"
+    return window.astype("float32"), "ok"
+
+
+def predict_next_period(row_dict, xgb_model, lstm_model, scaler, recent_df,
+                        return_info=False):
     """
     Make a hybrid prediction for the next period given the current row
     and a window of recent readings.
 
     Returns (hybrid_pred, xgb_pred, lstm_pred) all in kW.
+    With return_info=True a fourth element is appended:
+    {"lstm_used": bool, "lstm_reason": str}
     """
-    feat_df = pd.DataFrame([{col: row_dict.get(col, 0) for col in FEATURE_COLS}])
-    xgb_pred = float(xgb_model.predict(feat_df)[0])
+    feat_df = _feature_frame(row_dict)
+    xgb_pred = _as_float(xgb_model.predict(feat_df)[0])
 
-    if len(recent_df) >= WINDOW_SIZE:
-        window_data = recent_df[FEATURE_COLS + [TARGET]].tail(WINDOW_SIZE)
-        scaled = scaler.transform(window_data)
-        lstm_input = scaled.values.reshape(1, WINDOW_SIZE, -1)
-        lstm_pred = float(lstm_model.predict(lstm_input, verbose=0)[0][0])
+    lstm_pred = xgb_pred
+    lstm_used = False
+
+    if lstm_model is None or scaler is None:
+        reason = "lstm_unavailable"
     else:
-        lstm_pred = xgb_pred
+        window, reason = _lstm_window(recent_df)
+        if window is not None:
+            try:
+                scaled = np.asarray(scaler.transform(window), dtype="float32")
+                if scaled.shape != (WINDOW_SIZE, len(FEATURE_COLS) + 1):
+                    reason = "scaler_shape_mismatch"
+                else:
+                    lstm_input = scaled.reshape(1, WINDOW_SIZE, -1)
+                    raw = lstm_model.predict(lstm_input, verbose=0)
+                    candidate = _as_float(np.asarray(raw).ravel()[0], default=float("nan"))
+                    if np.isfinite(candidate):
+                        lstm_pred = candidate
+                        lstm_used = True
+                        reason = "ok"
+                    else:
+                        reason = "non_finite_output"
+            except Exception as exc:  # noqa: BLE001 - never let the LSTM kill the UI
+                reason = f"lstm_error:{type(exc).__name__}"
 
-    hybrid = (xgb_pred + lstm_pred) / 2.0
+    hybrid = _as_float((xgb_pred + lstm_pred) / 2.0)
+    if return_info:
+        return hybrid, xgb_pred, lstm_pred, {"lstm_used": lstm_used, "lstm_reason": reason}
     return hybrid, xgb_pred, lstm_pred
 
 

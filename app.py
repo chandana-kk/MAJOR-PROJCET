@@ -1300,19 +1300,16 @@ def _main_dashboard_inner():
         st.info(T("getting_ready"))
         return
 
-    scaled_live_row = live_row.copy()
-    scaled_live_row[TARGET] = live_row.get(TARGET, 0) * sf
-
     replay_window_raw = sim.get_window(WINDOW_SIZE + 10)
-    if not replay_window_raw.empty:
-        replay_window = replay_window_raw.copy()
-        replay_window["Global_active_power"] = replay_window["Global_active_power"] * sf
-    else:
-        replay_window = replay_window_raw
 
-    pred_kw, xgb_p, lstm_p = predict_next_period(
-        scaled_live_row, xgb_model, lstm_model, scaler, replay_window
+    # Predict on the raw demo readings, then apply the household scaling factor
+    # once to the outputs. Pre-scaling the inputs would double-scale the LSTM,
+    # which consumes Global_active_power as one of its input features.
+    pred_kw, xgb_p, lstm_p, pred_info = predict_next_period(
+        live_row, xgb_model, lstm_model, scaler, replay_window_raw,
+        return_info=True,
     )
+    pred_kw *= sf
     xgb_p *= sf
     lstm_p *= sf
     uncertainty = hybrid_mae * sf
@@ -1357,8 +1354,9 @@ def _main_dashboard_inner():
                     trend_dir="neutral", css_class="mc-green")
         metric_card(c2, label=T("card_next_hour"), value=f"{pred_kw:.2f}", unit="kW",
                     sub=T("card_next_hour_sub", lo=f"{lower:.2f}", hi=f"{upper:.2f}"),
-                    trend_text=T("card_smart_forecast"), trend_dir="neutral",
-                    css_class="mc-teal")
+                    trend_text=T("pred_model_hybrid" if pred_info.get("lstm_used")
+                                 else "pred_model_xgb_only"),
+                    trend_dir="neutral", css_class="mc-teal")
         metric_card(c3, label=T("card_today_cost"),
                     value=f"Rs. {fmt_rs(today_info['total_cost'])}",
                     sub=T("card_kwh_today", kwh=fmt_kwh(today_info['total_kwh'])),
@@ -1415,6 +1413,7 @@ def _main_dashboard_inner():
             ))
             fig_conf.update_layout(**PLOTLY_LAYOUT(height=260, margin=dict(l=30, r=30, t=40, b=10)))
             st.plotly_chart(fig_conf, width="stretch")
+            st.caption(T("cap_forecast_mae", mae=f"{hybrid_mae:.3f}"))
 
     with tab_analysis:
         c_left, c_right = st.columns(2)
