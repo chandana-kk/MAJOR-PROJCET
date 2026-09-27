@@ -756,6 +756,25 @@ def compute_scaling_factor(home_details):
     return max(0.3, min(scale, 3.0))
 
 
+def refresh_replay(sim: ReplaySimulator) -> None:
+    """
+    Redraw on a timer while the replay is still moving.
+
+    streamlit-autorefresh is listed in requirements.txt and was never imported,
+    so the replay position advanced in the background without the screen ever
+    following it. Refresh is limited to a running, unfinished replay so an idle
+    dashboard does not rerun every few seconds for nothing.
+    """
+    if not (sim.is_running and not sim.is_finished):
+        return
+    try:
+        from streamlit_autorefresh import st_autorefresh
+    except ImportError:
+        return
+    # One tick per replay step is enough; faster just redraws the same row.
+    st_autorefresh(interval=int(max(2, sim.delay)) * 1000, key="replay_autorefresh")
+
+
 def get_simulator():
     """
     The replay simulator, retargeted whenever the active data source changes.
@@ -1268,14 +1287,24 @@ def ocr_image_bytes(data: bytes):
     """
     Best-effort OCR on an image. Returns (text, status):
       status True  -> OCR ran successfully
-      status False -> pytesseract/PIL not available (engine missing)
-      status None  -> OCR attempted but failed on this image
+      status False -> the OCR engine is unavailable on this machine
+      status None  -> the engine ran but could not read this image
+
+    The two failure modes are kept apart. Importing pytesseract succeeds as soon
+    as the Python package is installed, so a machine without the Tesseract
+    binary used to raise TesseractNotFoundError inside the call, get swallowed
+    by the broad handler below, and be reported as a bad image.
     """
     try:
         import io
         import pytesseract
         from PIL import Image
     except ImportError:
+        return "", False
+    try:
+        # pytesseract imports fine without the binary; this is what detects it.
+        pytesseract.get_tesseract_version()
+    except Exception:
         return "", False
     try:
         img = Image.open(io.BytesIO(data))
@@ -1545,6 +1574,12 @@ def _main_dashboard_inner():
 
     sim = get_simulator()
     hybrid_mae = meta.get("hybrid_mae", 0.15)
+
+    # The replay advances on a background thread, but Streamlit only redraws on
+    # interaction, so without this the displayed reading stays frozen while the
+    # simulator moves on. Refresh only while the replay is actually moving, and
+    # stop once it reaches the end so the session does not rerun forever.
+    refresh_replay(sim)
 
     # Only the shifted sample dataset may be matched against the wall clock.
     # An upload keeps its real timestamps, so its "current" reading is simply

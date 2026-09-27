@@ -1,9 +1,18 @@
-# ⚡ Home Energy Dashboard
+# ⚡ EnergyPulse — Home Energy Dashboard
 
-A multi-page **Streamlit** web app for an AI-based home electricity usage
-prediction project. It ships with a deterministic, physically plausible
-**two-year hourly dataset** (17,520 rows) and a trained **Random Forest
-regressor**, so every page works out of the box.
+A **Streamlit** web app for household electricity forecasting, appliance
+breakdown, bill forecasting and anomaly tips, in **English, Hindi, Kannada and
+Telugu**.
+
+It ships with the **UCI Individual household electric power consumption**
+dataset (34,168 hourly rows, December 2006 – November 2010) and a trained
+**XGBoost + LSTM hybrid**, so every tab works out of the box.
+
+> The bundled data is a real meter recording from one household, used as a
+> **demo sample**. The dashboard labels it as sample data, shifts its timestamps
+> forward so it lines up with the present, and never presents it as a live
+> meter feed. To use your own readings, upload a CSV — see
+> [Using your own data](#using-your-own-data).
 
 ## New Features (V2.1)
 
@@ -45,7 +54,7 @@ Set up a free Gmail app password in ~3 minutes (no third-party accounts):
    SMTP_PASSWORD=the-16-character-app-password
    ```
    (Leave `SMTP_FROM` blank to send from your own Gmail address.)
-5. **Save and restart the app.** The Notifications tab will now show "Connected" — click **Send test** to verify delivery.
+5. **Save and restart the app.** The Notifications tab will show "Configured — not yet tested" — click **Send test** to verify delivery. It only reports "Connected" after a message has actually gone out.
 
 > Use the 16-character **app password**, not your normal Gmail password. Normal passwords are rejected by Google for SMTP.
 
@@ -58,6 +67,9 @@ SENDGRID_API_KEY=your_sendgrid_api_key_here
 ```
 
 Use **either** the SMTP block **or** `SENDGRID_API_KEY`, not both — the app prefers SendGrid when both are present. If no email variables are set at all, the app runs honestly in test mode: no email is sent, delivery status is recorded as failed, and the tab shows "Not configured".
+
+A mistyped `SMTP_PORT` (anything that is not a number between 1 and 65535) is
+reported as a warning and falls back to port 587. It does not stop the app.
 
 #### SMS — optional (future step)
 
@@ -74,21 +86,9 @@ SMS uses Twilio (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`
   - `get_family_notification_log`: Actual sent notifications for the household
 - Multi-language support: questions understood and answered in all 4 languages
 - **No hallucinations**: If data is unavailable (or there is no usable prior week), the chatbot says so honestly
+- Questions that match nothing in scope (weather, sports, general trivia, an empty box) are refused in the user's own language rather than answered with household figures
 - All numeric claims validated against tool output using LLMHallucinationGuard (including date/time tokens, which are excluded from number matching)
 - Conversation history stored per user, clearable from the chat tab
-
-### 3. Grounded Q&A Chatbot
-- Natural language questions about household energy usage
-- **Answers ONLY from real household data** via tool calls:
-  - `get_usage_history`: Actual measurements
-  - `get_appliance_breakdown`: Real appliance-level breakdown
-  - `get_current_prediction`: Computed from recent data
-  - `get_optimization_tips`: Detected anomalies, not generic suggestions
-- Multi-language support: questions understood and answered in all 4 languages
-- **No hallucinations**: If data unavailable, chatbot says so honestly
-- All numeric claims validated against tool output using LLMHallucinationGuard
-- Conversation history stored per user
-- Includes "Tell me why" examples for common questions
 
 See [FEATURES_NEW.md](FEATURES_NEW.md) for complete documentation.
 
@@ -138,13 +138,17 @@ majorproject/
 ├── i18n.py                 # English/Hindi/Kannada/Telugu translations
 ├── db.py                   # SQLite: users, family, notifications, chat
 ├── cost.py                 # tariff/weekly/peak cost helpers
-├── data.py                 # synthetic dataset generation & loader
-├── data_processing.py      # remapping of raw data to current dates
-├── feature_manager.py      # household settings / feature config
+├── data.py                 # UCI download, hourly aggregation, loaders
+├── data_source.py          # upload normalisation, units, capability detection
+├── appliances.py           # NILM sub-meter → appliance breakdown
 ├── optimize.py             # optimization/insight rules
-├── model.py                # Random Forest training, metrics, forecasting
-├── train_model.py          # CLI training script
-├── test_new_features.py    # feature suite (5 test groups, all green)
+├── model.py                # hybrid training, metrics, forecasting
+├── replay.py               # replays the active frame row by row
+├── convert_to_docx.py      # exports the conference paper to .docx
+├── test_csv_import.py      # 26 tests: upload formats, units, timestamps
+├── test_chatbot_routing.py # 38 tests: intent routing + guard number checks
+├── test_notifications.py   # 12 tests: backend status, ports, log types
+├── test_new_features.py    # feature suite (6 test groups, all green)
 ├── requirements.txt
 ├── .env.example            # email/SMS credential template
 └── .streamlit/config.toml  # dark theme
@@ -152,30 +156,61 @@ majorproject/
 
 ## How the model works
 
-- **Data**: hourly usage modelled as the sum of seven appliance categories
-  (HVAC, water heating, lighting, kitchen, laundry, electronics, other) driven
-  by time of day, weekday, season, temperature and humidity.
-- **Features (14)**: `hour`, `day_of_week`, `month`, `day_of_year`,
-  `hour_sin/cos`, `day_sin/cos`, `is_weekend`, `is_holiday`, `temperature_c`,
-  `humidity_pct`, `rolling_mean_24h`, `lag_1h`.
-- **Model**: Random Forest regressor (200 trees), trained on the first 80% of
-  hours (time-ordered), evaluated on the most recent 20%. The held-out
-  residual spread sizes the forecast confidence band (±1.96 × std ≈ 95%).
+- **Data**: the UCI household dataset, 1-minute readings aggregated to
+  **34,168 hourly rows**. The three `Sub_metering_*` columns are reported by the
+  source in **Wh per minute**; they are multiplied by 60 to get hourly Wh, which
+  is why the appliance breakdown no longer collapses into a single "Other" bar.
+- **Model inputs (10)**: the last 10 hours (`WINDOW_SIZE`) of
+  `Global_active_power`, `hour`, `day_of_week`, `is_weekend`,
+  `Global_reactive_power`, `Voltage`, `Global_intensity` and the three
+  sub-meters.
+- **Model**: an **XGBoost regressor blended with an LSTM**, weighted by
+  inverse MAE. Trained time-ordered on the first 80% of hours, evaluated on the
+  most recent 20%. Current metrics from `models/model_meta.pkl`:
+  - XGBoost MAE **0.0120**, LSTM MAE **0.3399**
+  - hybrid MAE **0.0163** at weights **0.966 / 0.034** (a flat 50/50 blend
+    scores 0.1697, roughly ten times worse)
+- **Honesty guards**: prediction is withheld unless every one of the 10 input
+  columns is present; appliance breakdown and optimization need all three
+  sub-meters. Missing inputs produce a localized, actionable message instead of
+  a number.
+- The LSTM is optional at inference. If it is unavailable or the dataset shape
+  is unsupported, the app falls back to XGBoost and records the reason.
 
-## Using real data
+## Using your own data
 
-Replace `core/data.load_dataset` (or `core/runtime.get_dataset`) with a loader
-for your own meter / smart-plug export. The rest of the app expects these
-columns:
+Upload a CSV from the **Data** panel. The uploader accepts `.csv` and `.tsv`,
+sniffs the delimiter, and reads Latin-1 as well as UTF-8.
 
-```
-timestamp, temperature_c, humidity_pct, is_weekend, is_holiday,
-hvac_kwh, water_heating_kwh, lighting_kwh, kitchen_kwh, laundry_kwh,
-electronics_kwh, other_kwh, electricity_usage_kwh
-```
+- **Timestamps** may be a single `Date`+`Time` pair or one combined column.
+  ISO dates are read unambiguously; for `dd/mm` vs `mm/dd` the order is
+  inferred per column, and an ambiguous month-first reading is flagged in the
+  provenance banner rather than silently reinterpreted.
+- **Units** are detected per column. Sub-hourly data is resampled to hourly:
+  `Wh` values are summed and `W` values averaged, with a warning and a manual
+  override when the unit is not certain.
+- **Column names** are matched through an alias table, so `total_kwh`,
+  `Total Consumption` and `Global_active_power` all map to the same field.
+- **Timestamps are preserved.** The dashboard never rewrites an upload's dates;
+  the current-time match used for the sample does not apply to uploads, whose
+  headline reading is simply the newest row in the file.
 
-> The bundled dataset is synthetic and generated with a fixed seed for
-> reproducibility — figures shown are illustrative, not real consumption.
+Anything the upload cannot supply is withheld with a message naming the missing
+columns, rather than filled with a default or estimated number. The panel always
+shows the file name, row count, time range, and units actually applied.
+
+## Bill photo OCR (optional)
+
+Uploading a bill **image** runs OCR to prefill units, amount and billing period.
+This needs the Tesseract engine, which is a separate program from the Python
+packages:
+
+- Windows: `winget install UB-Mannheim.TesseractOCR`
+- macOS: `brew install tesseract`
+- Debian/Ubuntu: `sudo apt install tesseract-ocr`
+
+Without the engine the app says OCR is unavailable and lets you fill the fields
+in manually. It never guesses at the contents of an image it could not read.
 
 ## Costs & emissions assumptions
 

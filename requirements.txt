@@ -9,3 +9,14 @@ plotly>=5.24
 python-dotenv>=1.0
 sendgrid>=6.10
 twilio>=8.10
+
+# Bill photo OCR. The Python packages install on their own, but the Tesseract
+# engine is a separate program that must also be installed on the machine
+# (Windows: winget install UB-Mannheim.TesseractOCR, macOS: brew install
+# tesseract, Debian: apt install tesseract-ocr). Without it the app reports
+# "OCR unavailable" instead of guessing at the image contents.
+pillow>=10.0
+pytesseract>=0.3.10
+
+# Used by convert_to_docx.py to export the conference paper.
+python-docx>=1.1

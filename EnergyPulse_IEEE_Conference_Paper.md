@@ -190,13 +190,14 @@ The system is implemented using:
 
 The codebase is organized into functional modules:
 
-- **data.py**: Data downloading, cleaning, resampling, and feature engineering. Outputs cleaned_energy_data.csv.
-- **train_model.py**: Hybrid model training, evaluation, and serialization. Outputs xgboost_model.pkl, lstm_model.keras, lstm_scaler.pkl, and model_meta.pkl containing MAE values.
+- **data.py**: Data downloading, cleaning, hourly resampling, and feature engineering. Outputs cleaned_energy_data.csv.
+- **data_source.py**: Upload normalization, unit detection, timestamp parsing, and capability reporting for user-supplied CSVs.
+- **model.py**: Hybrid model training, evaluation, and serialization. Outputs xgboost_model.pkl, lstm_model.keras, lstm_scaler.pkl, and model_meta.pkl containing MAE values.
 - **app.py**: Streamlit entry point orchestrating the multi-page dashboard.
 - **appliances.py**: Appliance-level energy attribution logic.
 - **cost.py**: Cost calculations and peak/off-peak analysis.
 - **optimize.py**: Anomaly detection, recommendation generation, and what-if simulation.
-- **replay_simulator.py**: Background thread simulating real-time meter updates for demo purposes.
+- **replay.py**: Background thread replaying the active dataset row by row for demo purposes.
 - **llm_guard.py**: Validation layer preventing AI-generated content from making unverified numeric claims.
 - **i18n.py**: Multilingual string translations (English, Hindi, Kannada, Telugu).
 

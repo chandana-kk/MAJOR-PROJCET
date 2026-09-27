@@ -70,11 +70,10 @@ Three fully-integrated features have been successfully added to the EnergyPulse 
    - Grounding validation
    - Conversation history management
 
-4. **feature_manager.py** (288 lines)
-   - render_family_management_ui() - UI for managing family members
-   - render_notifications_ui() - notification configuration & test
-   - render_chatbot_ui() - chat interface
-   - render_admin_panel() - testing utilities
+4. **features_ui.py**
+   - render_family_tab() - UI for managing family members
+   - render_notifications_tab() - notification configuration & test
+   - render_chat_tab() - chat interface
 
 ### Test & Verification (1 file - 382 lines)
 5. **test_new_features.py**
@@ -300,11 +299,7 @@ Import and use the feature modules:
 from db import get_db
 from notifications import get_notification_service
 from chatbot import get_chatbot
-from feature_manager import render_family_management_ui, render_chatbot_ui
-
-# Render UI components
-render_family_management_ui()
-render_chatbot_ui()
+from features_ui import render_family_tab, render_chat_tab
 
 # Or use programmatically
 db = get_db()
