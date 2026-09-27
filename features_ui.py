@@ -20,7 +20,7 @@ from typing import Optional, Dict, Any
 import streamlit as st
 
 from db import get_db
-from i18n import T, t_lang, LANGS, RELATIONSHIP_CODES, localized_relationship, relationship_code_from_label, format_localized_month
+from i18n import T, t_lang, LANGS, RELATIONSHIP_CODES, NOTIFICATION_TYPE_KEY, localized_relationship, relationship_code_from_label, format_localized_month
 from notifications import get_notification_service, dispatch_household_alerts
 from chatbot import get_chatbot
 from cost import next_month_cost
@@ -221,12 +221,26 @@ def render_notifications_tab(db, household_id: str, primary_email: str,
     _section(T("notif_title"), "\U0001f514")
     st.markdown(T("notif_intro"))
 
-    # Backend status (honest: real credentials present -> Connected, else Not configured)
+    # Backend status. Credentials being present is not a connection, so the
+    # metric only says "Connected" once a real delivery has succeeded.
     c1, c2 = st.columns(2)
     email_backend = service.email_backend
+    email_state = service.email_status()
+    _EMAIL_STATE_KEY = {
+        "not_configured": "notif_not_configured",
+        "configured": "notif_configured_unverified",
+        "verified": "notif_connected",
+        "failed": "notif_send_failed",
+    }
     with c1:
-        email_status = T("notif_connected") if email_backend else T("notif_not_configured")
-        st.metric(T("notif_email_backend"), f"{'✓ ' if email_backend else ''}{email_status}")
+        email_status = T(_EMAIL_STATE_KEY[email_state])
+        tick = "\u2713 " if email_state in ("configured", "verified") else ""
+        st.metric(T("notif_email_backend"), f"{tick}{email_status}")
+        if service.SMTP_PORT_ERROR:
+            st.warning(service.SMTP_PORT_ERROR)
+        if email_state == "failed" and service.last_email_error:
+            st.caption(t_lang("notif_last_error", language,
+                              error=service.last_email_error))
         if email_backend == "smtp":
             st.caption(t_lang("notif_email_caption_smtp", language,
                               user=service.SMTP_USERNAME))
@@ -234,7 +248,7 @@ def render_notifications_tab(db, household_id: str, primary_email: str,
             st.caption(T("notif_email_caption_sendgrid"))
     with c2:
         sms_status = T("notif_connected") if service.sms_backend else T("notif_not_configured")
-        st.metric(T("notif_sms_backend"), f"{'✓ ' if service.sms_backend else ''}{sms_status}")
+        st.metric(T("notif_sms_backend"), f"{'\u2713 ' if service.sms_backend else ''}{sms_status}")
         st.caption(T("notif_sms_optional"))
 
     if not email_backend:
@@ -323,12 +337,7 @@ def render_notifications_tab(db, household_id: str, primary_email: str,
 
 
 def _localize_notif_type(type_name: str, language: str) -> str:
-    key = {
-        "bill_alert": "notif_type_bill_alert",
-        "weekly_summary": "notif_type_weekly_summary",
-        "optimization_tip": "notif_type_optimization_tip",
-        "test": "notif_type_test",
-    }.get(type_name)
+    key = NOTIFICATION_TYPE_KEY.get(type_name)
     return t_lang(key, language) if key else type_name
 
 

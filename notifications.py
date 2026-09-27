@@ -52,10 +52,10 @@ class NotificationService:
 
     def __init__(self):
         # Env is read at construction time (fresh on every app restart), so a
-        # user can add credentials to .env and see "Connected" after restarting.
+        # user can add credentials to .env and see "Configured" after restarting.
         self.SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
         self.SMTP_HOST = os.getenv("SMTP_HOST")
-        self.SMTP_PORT = int(os.getenv("SMTP_PORT") or "587")
+        self.SMTP_PORT, self.SMTP_PORT_ERROR = self._parse_port(os.getenv("SMTP_PORT"))
         self.SMTP_USERNAME = os.getenv("SMTP_USERNAME")
         self.SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
         self.SMTP_FROM = os.getenv("SMTP_FROM") or os.getenv("SMTP_USERNAME") or "noreply@energypulse.local"
@@ -67,8 +67,34 @@ class NotificationService:
         self.sms_backend = None
         self.sg_client = None
         self.twilio_client = None
+        # Credentials present is not proof of delivery. These stay unknown until
+        # a real send succeeds or fails, so the UI never claims a connection it
+        # has not made.
+        self.email_verified = False
+        self.last_email_error: Optional[str] = None
         self._init_email_backend()
         self._init_sms_backend()
+
+    @staticmethod
+    def _parse_port(raw: Optional[str]) -> Tuple[int, Optional[str]]:
+        """
+        Read SMTP_PORT without letting a typo take down the whole app.
+
+        int("smtp.gmail.com") raises ValueError, and this runs during
+        NotificationService construction, which every tab calls. A mistyped
+        port therefore used to blank out all eight tabs instead of only
+        notifications.
+        """
+        text = (raw or "").strip()
+        if not text:
+            return 587, None
+        try:
+            port = int(text)
+        except ValueError:
+            return 587, f"SMTP_PORT={text!r} is not a number; using 587"
+        if not 1 <= port <= 65535:
+            return 587, f"SMTP_PORT={port} is out of range 1-65535; using 587"
+        return port, None
 
     @staticmethod
     def _real(value: Optional[str]) -> bool:
@@ -97,6 +123,21 @@ class NotificationService:
         password = (self.SMTP_PASSWORD or "").strip()
         if host and self._real(user) and self._real(password):
             self.email_backend = "smtp"
+
+    def email_status(self) -> str:
+        """
+        Honest delivery state: not_configured, configured, verified or failed.
+
+        "configured" only means credentials were found. Nothing here opens a
+        socket, so it must never be reported as a live connection.
+        """
+        if not self.email_backend:
+            return "not_configured"
+        if self.last_email_error:
+            return "failed"
+        if self.email_verified:
+            return "verified"
+        return "configured"
 
     def _init_sms_backend(self):
         sid = (self.TWILIO_ACCOUNT_SID or "").strip()
@@ -216,7 +257,7 @@ class NotificationService:
                 household_id=household_id,
                 recipient_email=email,
                 recipient_name=name,
-                notification_type="bill_alert",
+                notification_type="weekly_summary",
                 triggered_by="weekly_usage_summary",
                 trigger_data=trigger_data,
                 subject=subject,
@@ -346,11 +387,15 @@ class NotificationService:
                 except Exception:
                     pass
             if email_ok:
+                self.email_verified = True
+                self.last_email_error = None
                 return (True, None)
             if not self.email_backend:
                 return (False, "No email backend configured (set SENDGRID_API_KEY or SMTP_* in .env)")
+            self.last_email_error = "Email send failed"
             return (False, "Email send failed")
         except Exception as e:
+            self.last_email_error = str(e)
             return (False, str(e))
 
     def _send_email(self, to_email: str, subject: str, body_text: str) -> bool:

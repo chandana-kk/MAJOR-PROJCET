@@ -859,9 +859,9 @@ def render_login_screen():
         if st.button(T("btn_guest"), width="stretch", key="guest_btn"):
             auth["logged_in"] = True
             auth["email"] = "guest@demo.local"
-            auth["name"] = "Guest"
+            auth["name"] = T("guest_name")
             auth["guest"] = True
-            ensure_login("guest@demo.local", name="Guest", is_guest=True)
+            ensure_login("guest@demo.local", name=T("guest_name"), is_guest=True)
             st.rerun()
 
     return False
@@ -1092,7 +1092,7 @@ def render_sidebar():
     hd = st.session_state.home_details
     appliances = hd.get("appliances", [])
     with st.sidebar:
-        user_name = st.session_state.auth.get("name", "Guest")
+        user_name = st.session_state.auth.get("name") or T("guest_name")
         is_guest = st.session_state.auth.get("guest", False)
         render_language_selector(key="lang_select")
         st.markdown(f"""
@@ -1470,7 +1470,11 @@ def main_dashboard():
         </div>
         """, unsafe_allow_html=True)
         if e:
-            st.caption(f"{type(e).__name__}: {str(e)[:100]}...")
+            # The exception text is kept for debugging but is never the primary
+            # message: it is untranslated, can contain markup, and means nothing
+            # to the person looking at the screen.
+            with st.expander(T("error_details_toggle")):
+                st.code(f"{type(e).__name__}: {str(e)[:500]}", language="text")
         c1, c2 = st.columns(2)
         with c1:
             if st.button(T("btn_go_home"), type="primary", key="err_go_home"):

@@ -27,7 +27,7 @@ from datetime import datetime, timedelta
 
 from db import get_db
 from llm_guard import LLMHallucinationGuard
-from i18n import t_lang, format_localized_month
+from i18n import t_lang, format_localized_month, NOTIFICATION_TYPE_KEY
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -161,12 +161,7 @@ _APPLIANCE_LABEL_KEY = {
     "Other": "app_other",
 }
 
-_NOTIFICATION_TYPE_KEY = {
-    "bill_alert": "notif_type_bill_alert",
-    "weekly_summary": "notif_type_weekly_summary",
-    "optimization_tip": "notif_type_optimization_tip",
-    "test": "notif_type_test",
-}
+_NOTIFICATION_TYPE_KEY = NOTIFICATION_TYPE_KEY
 
 
 def _prepare_household_data(household_data: Optional[pd.DataFrame]) -> pd.DataFrame:

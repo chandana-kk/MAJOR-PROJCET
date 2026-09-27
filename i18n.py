@@ -84,6 +84,8 @@ TRANSLATIONS = {
         # Sidebar
         "sb_my_home": "⚡ My Home",
         "guest_tag": "Guest",
+        "guest_name": "Guest",
+        "error_details_toggle": "Technical details",
         "people_suffix": "{n} people",
         "sqft_suffix": "{n} sq.ft.",
         "sb_edit_home": "Edit Home Details",
@@ -319,6 +321,8 @@ TRANSLATIONS = {
         "btn_start_dashboard": "डैशबोर्ड शुरू करें ✓",
         "sb_my_home": "⚡ मेरा घर",
         "guest_tag": "अतिथि",
+        "guest_name": "अतिथि",
+        "error_details_toggle": "तकनीकी विवरण",
         "people_suffix": "{n} लोग",
         "sqft_suffix": "{n} वर्ग फुट",
         "sb_edit_home": "घर की जानकारी बदलें",
@@ -543,6 +547,8 @@ TRANSLATIONS = {
         "btn_start_dashboard": "ಡ್ಯಾಶ್‌ಬೋರ್ಡ್ ಪ್ರಾರಂಭಿಸಿ ✓",
         "sb_my_home": "⚡ ನನ್ನ ಮನೆ",
         "guest_tag": "ಅತಿಥಿ",
+        "guest_name": "ಅತಿಥಿ",
+        "error_details_toggle": "ತಾಂತ್ರಿಕ ವಿವರಗಳು",
         "people_suffix": "{n} ಜನ",
         "sqft_suffix": "{n} ಚ.ಅಡಿ",
         "sb_edit_home": "ಮನೆ ವಿವರ ಬದಲಿಸಿ",
@@ -767,6 +773,8 @@ TRANSLATIONS = {
         "btn_start_dashboard": "డాష్‌బోర్డ్ ప్రారంభించండి ✓",
         "sb_my_home": "⚡ నా ఇల్లు",
         "guest_tag": "అతిథి",
+        "guest_name": "అతిథి",
+        "error_details_toggle": "సాంకేతిక వివరాలు",
         "people_suffix": "{n} మంది",
         "sqft_suffix": "{n} చ.అడుగులు",
         "sb_edit_home": "ఇంటి వివరాలు మార్చండి",
@@ -980,6 +988,9 @@ _FEATURE_TRANSLATIONS = {
         "notif_test_btn": "Send test",
         "notif_run_now": "Run scheduled checks now",
         "notif_connected": "Connected",
+        "notif_configured_unverified": "Configured — not yet tested",
+        "notif_send_failed": "Last send failed",
+        "notif_last_error": "Last error: {error}",
         "notif_email_caption_smtp": "via Gmail SMTP as {user}",
         "notif_email_caption_sendgrid": "via SendGrid",
         "notif_sms_optional": "SMS via Twilio — optional, configure later.",
@@ -1098,6 +1109,9 @@ _FEATURE_TRANSLATIONS = {
         "notif_test_btn": "परीक्षण भेजें",
         "notif_run_now": "निर्धारित जाँच अभी चलाएँ",
         "notif_connected": "कनेक्टेड",
+        "notif_configured_unverified": "कॉन्फ़िगर्ड — अभी परीक्षण नहीं हुआ",
+        "notif_send_failed": "अंतिम भेजना विफल रहा",
+        "notif_last_error": "अंतिम त्रुटि: {error}",
         "notif_email_caption_smtp": "Gmail SMTP के माध्यम से ({user})",
         "notif_email_caption_sendgrid": "SendGrid के माध्यम से",
         "notif_sms_optional": "Twilio द्वारा SMS — वैकल्पिक, बाद में कॉन्फ़िगर करें।",
@@ -1216,6 +1230,9 @@ _FEATURE_TRANSLATIONS = {
         "notif_test_btn": "ಪರೀಕ್ಷೆ ಕಳುಹಿಸಿ",
         "notif_run_now": "ನಿಗದಿತ ಪರಿಶೀಲನೆ ಈಗ ಚಲಾಯಿಸಿ",
         "notif_connected": "ಸಂಪರ್ಕಿಸಲಾಗಿದೆ",
+        "notif_configured_unverified": "ಕಾನ್ಫಿಗರ್ ಮಾಡಲಾಗಿದೆ — ಇನ್ನೂ ಪರೀಕ್ಷೆ ಆಗಿಲ್ಲ",
+        "notif_send_failed": "ಕೊನೆಯ ಕಳುಹಿಕೆ ವಿಫಲವಾಗಿದೆ",
+        "notif_last_error": "ಕೊನೆಯ ದೋಷ: {error}",
         "notif_email_caption_smtp": "Gmail SMTP ಮೂಲಕ ({user})",
         "notif_email_caption_sendgrid": "SendGrid ಮೂಲಕ",
         "notif_sms_optional": "Twilio ಮೂಲಕ SMS — ಐಚ್ಛಿಕ, ನಂತರ ಕಾನ್ಫಿಗರ್ ಮಾಡಿ.",
@@ -1334,6 +1351,9 @@ _FEATURE_TRANSLATIONS = {
         "notif_test_btn": "పరీక్ష పంపు",
         "notif_run_now": "షెడ్యూల్డ్ తనిఖీలను ఇప్పుడు అమలు చేయండి",
         "notif_connected": "కనెక్ట్ అయింది",
+        "notif_configured_unverified": "కాన్ఫిగర్ చేయబడింది — ఇంకా పరీక్షించలేదు",
+        "notif_send_failed": "చివరి పంపడం విఫలమైంది",
+        "notif_last_error": "చివరి లోపం: {error}",
         "notif_email_caption_smtp": "Gmail SMTP ద్వారా ({user})",
         "notif_email_caption_sendgrid": "SendGrid ద్వారా",
         "notif_sms_optional": "Twilio ద్వారా SMS — ఐచ్ఛికం, తరువాత కాన్ఫిగర్ చేయండి.",
@@ -1452,6 +1472,16 @@ def TLIST(key):
 
 # Canonical English home-type values used for storage (keep data language-neutral)
 HOME_TYPES = ["Apartment", "Independent House", "Villa", "Studio", "Other"]
+
+
+# Stored notification_type -> label key. Defined once so the notification log
+# and the chatbot cannot drift apart on how the same row is described.
+NOTIFICATION_TYPE_KEY = {
+    "bill_alert": "notif_type_bill_alert",
+    "weekly_summary": "notif_type_weekly_summary",
+    "optimization_tip": "notif_type_optimization_tip",
+    "test": "notif_type_test",
+}
 
 
 def home_type_label(value):
