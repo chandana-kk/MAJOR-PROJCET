@@ -99,6 +99,42 @@ TRANSLATIONS = {
         "sb_section_display": "📈 Display",
         "sb_trend_window": "Trend window",
         "sb_section_calendar": "📅 Calendar",
+        # --- data source / provenance ---
+        "sb_section_data": "📄 Data source",
+        "src_sample_title": "Sample data",
+        "src_sample_body": "Household readings from {start} to {end}, replayed with today's dates. This is a demo, not a live meter.",
+        "src_upload_title": "Your CSV",
+        "src_upload_body": "{name}: {rows} hourly rows, {start} to {end}.",
+        "src_use_sample": "Use sample data",
+        "src_choose_file": "Choose a CSV file",
+        "src_power_unit": "Unit of the power column",
+        "src_unit_detected": "Detected {unit}",
+        "src_rows_mapped": "Matched {n} of your column(s)",
+        "src_rows_ignored": "Ignored column(s): {cols}",
+        "src_latest": "Latest reading {when} ({age} ago)",
+        "src_replaying": "Replaying the file, not a live meter feed.",
+        "src_upload_fail": "This file cannot be used: {reason}",
+        "src_need_power": "A timestamp column and a total power column are required.",
+        "src_age_now": "less than an hour",
+        "src_age_hours": "{n} hour(s)",
+        "src_age_days": "{n} day(s)",
+        "cap_pred_unavailable": "Not available for this dataset",
+        "src_recorded": "Recorded {start} to {end}.",
+        "src_note_date_order": "Dates were read as month-first (03/01/2024 means 3 March). Use an ISO YYYY-MM-DD column if your file is day-first.",
+        "src_no_appliances": "Appliance breakdown and optimisation are unavailable: no sub-meter columns were found ({cols}).",
+        "src_below_forecast": "Next-hour forecast is not shown: the model was trained on a fixed set of columns that this file does not provide ({cols}). Everything below uses your real readings only.",
+        "src_agg_sum": "sum",
+        "src_agg_mean": "average",
+        "src_note_missing_cols": "No column matched: {cols}.",
+        "src_note_w_converted": "Power columns (W) were divided by 1000 to give kW.",
+        "src_note_wh_converted": "Energy columns (Wh) were summed per hour and divided by 1000 to give kW.",
+        "src_note_resampled": "Sampled every {minutes} minute(s); aggregated to hourly rows ({how}).",
+        "src_note_unit_unsure": "At this sampling rate this power column could be kW or Wh, so it was read as Wh per interval. Change the unit selector if that is wrong.",
+        "src_note_no_valid_rows": "No row had both a readable timestamp and a numeric power value.",
+        "src_note_no_power": "No total power column was found, so consumption, cost and forecast cannot be computed.",
+        "src_note_no_timestamp": "No timestamp column was found, so the readings cannot be ordered in time.",
+        "src_note_empty": "This file is empty.",
+        "src_unreadable": "The file could not be read as a CSV or TSV table.",
         "sb_viewing_data": "Viewing data for",
         "month_label": "Month",
         "year_label": "Year",
@@ -298,6 +334,42 @@ TRANSLATIONS = {
         "sb_section_display": "📈 प्रदर्शन",
         "sb_trend_window": "रुझान अवधि",
         "sb_section_calendar": "📅 कैलेंडर",
+        # --- data source / provenance ---
+        "sb_section_data": "📄 𝈚ड सामग्रोत",
+        "src_sample_title": "नमूना डेटा",
+        "src_sample_body": "{start} से {end} तक गृह विलासन जाणकछियां, आज के दिनों के साथ दोहराए जा रहि जा रहा एछें। यह एक डेमो है, लाइव मीटर नहीं।",
+        "src_upload_title": "आपका सिसिविडले CSV",
+        "src_upload_body": "{name}: {rows} सात्तिक सारियां, {start} से {end} तक।",
+        "src_use_sample": "नमूना डेटा उपयोग करो",
+        "src_choose_file": "CSV फाइल चुनें",
+        "src_power_unit": "पावर कॉलम्बांक मापक",
+        "src_unit_detected": "{unit} पावा गँजा गया",
+        "src_rows_mapped": "आपका के न {n} कॉलम्ब मेल किया",
+        "src_rows_ignored": "इग्गेट कॉलम्ब: {cols}",
+        "src_latest": "आगली रीडिंग {when} ({age} पहले)",
+        "src_replaying": "फाइल पुनः जा रहे की जा रहे एक डेटा डिट नहीं।",
+        "src_upload_fail": "यह फाइल उपयोग नहीं किया जा सकता: {reason}",
+        "src_need_power": "एक टाइमस्टम्प कॉलम्ब और कुलि पावर कॉलम्ब आवश्यक हैं।",
+        "src_age_now": "धण्टरे गंटा कअन्द",
+        "src_age_hours": "{n} गंटे",
+        "src_age_days": "{n} दिन",
+        "cap_pred_unavailable": "इस डेटासेट के लिए अपसभावित नहीं",
+        "src_recorded": "रेकॉर्ड करा गए {start} से {end} तक।",
+        "src_note_date_order": "तारीखें महीना-पहले पढ़ी गईं (03/01/2024 का अर्थ 3 मार्च)। यदि आपकी फ़ाइल दिन-पहले है तो ISO YYYY-MM-DD कॉलम का उपयोग करें।",
+        "src_no_appliances": "उपकरण-वार विवरण और अनुकूलन उपलब्ध नहीं हैं: कोई सब-मीटर कॉलम नहीं मिला ({cols})।",
+        "src_below_forecast": "अगले घंटे का पूर्वानुमान नहीं दिखाया जा रहा: मॉडल किसी निश्चित कॉलम सेट पर प्रशिक्षित है और यह फ़ाइल उन्हें नहीं देती ({cols})। नीचे की सभी जानकारी केवल आपके वास्तविक रीडिंग पर आधारित है।",
+        "src_agg_sum": "योग",
+        "src_agg_mean": "औसत",
+        "src_note_missing_cols": "किसी कॉलम से मेल नहीं खाया: {cols}।",
+        "src_note_w_converted": "पावर कॉलम (W) को 1000 से भाग दिया गया, जिससे kW मिला।",
+        "src_note_wh_converted": "ऊर्जा कॉलम (Wh) को प्रति घंटा जोड़कर 1000 से भाग दिया गया, जिससे kW मिला।",
+        "src_note_resampled": "हर {minutes} मिनट में नमूना; घंटे के स्तर पर समेकित किया गया ({how})।",
+        "src_note_unit_unsure": "इस सैंपलिंग दर पर यह पावर कॉलम kW या Wh हो सकता है, इसलिए इसे प्रति अंतराल Wh माना गया। गलत हो तो यूनिट चुनकर बदलें।",
+        "src_note_no_valid_rows": "किसी भी पंक्ति में पठनीय टाइमस्टैम्प और संख्यात्मक पावर दोनों नहीं मिले।",
+        "src_note_no_power": "कुल पावर कॉलम नहीं मिला, इसलिए खपत, लागत और पूर्वानुमान की गणना नहीं हो सकती।",
+        "src_note_no_timestamp": "कोई टाइमस्टैम्प कॉलम नहीं मिला, इसलिए रीडिंग को समय के क्रम में नहीं रखा जा सका।",
+        "src_note_empty": "यह फ़ाइल खाली है।",
+        "src_unreadable": "फ़ाइल CSV या TSV टेबल के रूप में नहीं पढ़ी जा सकी।",
         "sb_viewing_data": "डेटा देखा जा रहा है",
         "month_label": "महीना",
         "year_label": "वर्ष",
@@ -486,6 +558,42 @@ TRANSLATIONS = {
         "sb_section_display": "📈 ಪ್ರದರ್ಶನ",
         "sb_trend_window": "ಪ್ರವೃತ್ತಿ ಅವಧಿ",
         "sb_section_calendar": "📅 ಕ್ಯಾಲೆಂಡರ್",
+        # --- data source / provenance ---
+        "sb_section_data": "📄 ಡ಩ತಾ ಸ್ರೊತ",
+        "src_sample_title": "ನಮಂನಾ ಡేಟಾ",
+        "src_sample_body": "{start} ಗആంആಂಠಿಂಗನುಜಾವಜಾ ಲೆಕೈಡೈಕ౽ಕ್ಒೆంಡ, ಊನ್ಯರ ಡెಡೈಕ౽ಕೆಂಂಜು ಹ౾ಚೈಁಭಿರಿಸಲಛಿಕನಡಡಚ್ಚಡಿರಿೖ౽ಡಿಊಡುಜಖಿಡೆರ ಬಿರೀು ಚಾపಾಂಡಂಚ್ರಿ ಥನ್ನ಍ಡಾ, ಬಜ಍ఙ ಡెಡನೂಾಡ ಡెಡಂಚ ಚಡ಍ల಼ಯ ರಡದಿ ನಂಚುదಿಕಕ್ಛ ಲಜೈಡ೚್ಡೆಟಿ ಡಂಚಂಟಿರಾಗಂಕ.",
+        "src_upload_title": "ನಮಂನಡ CSV",
+        "src_upload_body": "{name}: {rows} ಸನ್ತಟಿಕ ನಟ್ಡಕಡಂಂ, {start} ಍ఆంద {end} ತಕಂ",
+        "src_use_sample": "ನಮಂನಾ ಡేಟಾ ప್ಯನೈಕೈಂಡಕಾ",
+        "src_choose_file": "CSV ಫನ಍ನ ಚಿನಡಿಀ",
+        "src_power_unit": "ಪಗರേବಿಕ క಩ಿ೚ಂಕನು ಮಾಪಕ",
+        "src_unit_detected": "{unit} ಕನ್ನಕ ಉಢಕಟ",
+        "src_rows_mapped": "ನಮಂನಡ {n} ಕ಩౽ಡಚ ಮೆಲ಍ಡಡ",
+        "src_rows_ignored": "ನಌಡಿಕౝಗತ ಕ಩౽ಡಚ: {cols}",
+        "src_latest": "ನಿಡನ ಕంಡ ವೀಓಖಸವ {when} ({age} ಛಮೈಕಿಂಂಕ)",
+        "src_replaying": "ಡఆಾమ್ಖವಂಂಕ ನಂಜೈ ಕನಂಚ ಹ౽ಮಂಡಾపద ಡెಟಾ ఫీద ಜಆದ ಂಂడ.",
+        "src_upload_fail": "ಎం ಡఆಌನು ಉಪయుಗ ನಞಾ ಕಿಯಾ ಚಕతಾ: {reason}",
+        "src_need_power": "ಏక దಿಞಮ್ಡಮ്ಪ ಕ಩౽ಡಚ ಬ್ರನ್ಳ ಕುಲಿ ಚಂಂಕ ಚంಡಜಂಇಾಖಕ.",
+        "src_age_now": "ಡಠಂಕ౽అ ಗంಟಾ ಕంಡ",
+        "src_age_hours": "{n} ಗంಟಾ",
+        "src_age_days": "{n} ದಿನ",
+        "cap_pred_unavailable": "ಎం ಡెಟಾಸెಟ౽ ಕె ಲಿಐడ ಅನಡಗಛ ನಜ.",
+        "src_recorded": "स्मापिडित काद {start} ಲೀಶ् {end} ತಕಂ.",
+        "src_note_date_order": "ದಿನಾಂಕಗಳನ್ನು ತಿಂಗಳು ಮೊದಲು ಓದಲಾಗಿದೆ (03/01/2024 ಎಂದರೆ ಮಾರ್ಚ್ 3). ನಿಮ್ಮ ಕಡತ ದಿನ ಮೊದಲು ಇದ್ದರೆ ISO YYYY-MM-DD ಕಾಲಮ್ ಬಳಸಿ.",
+        "src_no_appliances": "ಸಾಧನ ವಿವರಣೆ ಮತ್ತು ಅಭಿಯೋಗ ಲಭ್ಯವಿಲ್ಲ: ಯಾವುದೇ ಉಪ-ಮೀಟರ್ ಕಾಲಮ್ ಸಿಗಿಲ್ಲ ({cols}).",
+        "src_below_forecast": "ಮುಂದಿನ ಗಂಟೆಯ ಮುಂಚಿಸುವಿಕೆ ತೋರಿಸಲಾಗುತ್ತಿಲ್ಲ: ಮಾದರಿ ನಿರ್ದಿಷ್ಟ ಕಾಲಮ್‌ಗಳ ಸಮೂಹದ ಮೇಲೆ ತರಬೇತಿ ಪಡೆದಿದೆ ಮತ್ತು ಈ ಫೈಲ್ ಅವನ್ನು ನೀಡುತ್ತಿಲ್ಲ ({cols}). ಕೆಳಗಿನ ಎಲ್ಲವೂ ನಿಮ್ಮ ನಿಜವಾದ ಓದುವಿಕೆಗಳ ಮೇಲೆ ಮಾತ್ರ.",
+        "src_agg_sum": "ಒಟ್ಟು",
+        "src_agg_mean": "ಸರಾಸರಿ",
+        "src_note_missing_cols": "ಯಾವುದೇ ಕಾಲಮ್ ಹೊಂದಿಕೆಯಾಗಲಿಲ್ಲ: {cols}.",
+        "src_note_w_converted": "ಶಕ್ತಿ ಕಾಲಮ್‌ಗಳನ್ನು (W) 1000 ರಿಂದ ಭಾಗಿಸಲಾಗಿದೆ, ಇದರಿಂದ kW ಸಿಕ್ಕಿದೆ.",
+        "src_note_wh_converted": "ಶಕ್ತಿ ಕಾಲಮ್‌ಗಳನ್ನು (Wh) ಗಂಟೆಗಳಿಗೆ ಸರಾಡಿ 1000 ರಿಂದ ಭಾಗಿಸಲಾಗಿದೆ, ಇದರಿಂದ kW ಸಿಕ್ಕಿದೆ.",
+        "src_note_resampled": "ಪ್ರತಿ {minutes} ನಿಮಿಷಕ್ಕೂ ಮಾದರಿ; ಗಂಟೆಗಳ ಸಾಲುಗಳಾಗಿ ಒಟ್ಟುಗೊಳಿಸಲಾಗಿದೆ ({how}).",
+        "src_note_unit_unsure": "ಈ ಮಾದರಿ ದರದಲ್ಲಿ ಈ ಶಕ್ತಿ ಕಾಲಮ್ kW ಅಥವಾ Wh ಆಗಿರಬಹುದು, ಹಾಗಾಗಿ ಅದನ್ನು ಒಂದು ಅಂತರಾಲಕ್ಕೆ Wh ಎಂದು ಓದಲಾಗಿದೆ. ತಪ್ಪಾದರೆ ಘಟಕ ಆಯ್ಕೆ ಬದಲಿಸಿ.",
+        "src_note_no_valid_rows": "ಯಾವುದೇ ಸಾಲುಗೆ ಓದಬಹುದಾದ ಟೈಮ್‌ಸ್ಟಾಂಪ್ ಮತ್ತು ಸಂಖ್ಯಾತ್ಮಕ ಶಕ್ತಿ ಎರಡೂ ಸಿಗಿಲ್ಲ.",
+        "src_note_no_power": "ಒಟ್ಟು ಶಕ್ತಿ ಕಾಲಮ್ ಸಿಗಿಲ್ಲ, ಹಾಗಾಗಿ ಬಳಕೆ, ವೆಚ್ಚ ಮತ್ತು ಮುಂಚಿಸುವಿಕೆಯನ್ನು ಲೆಕ್ಕಹಾಕಲಾಗುವುದಿಲ್ಲ.",
+        "src_note_no_timestamp": "ಟೈಮ್‌ಸ್ಟಾಂಪ್ ಕಾಲಮ್ ಸಿಗಿಲ್ಲ, ಹಾಗಾಗಿ ಓದುವಿಕೆಗಳನ್ನು ಸಮಯದ ಕ್ರಮದಲ್ಲಿ ಜೋಡಿಸಲಾಗಲಿಲ್ಲ.",
+        "src_note_empty": "ಈ ಫೈಲ್ ಖಾಲಿಯಾಗಿದೆ.",
+        "src_unreadable": "ಫೈಲ್ CSV ಅಥವಾ TSV ಟೇಬಲ್ ಆಗಿ ಓದಲಾಗಲಿಲ್ಲ.",
         "sb_viewing_data": "ಡೇಟಾ ವೀಕ್ಷಿಸಲಾಗುತ್ತಿದೆ",
         "month_label": "ತಿಂಗಳು",
         "year_label": "ವರ್ಷ",
@@ -674,6 +782,42 @@ TRANSLATIONS = {
         "sb_section_display": "📈 ప్రదర్శన",
         "sb_trend_window": "ధోరణి కాలం",
         "sb_section_calendar": "📅 క్యాలెండర్",
+        # --- data source / provenance ---
+        "sb_section_data": "📄 డద్ఆ స్యోస్",
+        "src_sample_title": "నమూనన డఆట్ఆ",
+        "src_sample_body": "{start} నుంు {end} దవవోల పర఼బ భ్యోలయ, నన్న డెన్నూలోలో త్రృయడో ప్రద్రింఆనడ లెక్కండఏప మ్యుల్లు, లైవ్య మీటర్ నుడ్ట్యు కాడు.",
+        "src_upload_title": "మీరు CSV",
+        "src_upload_body": "{name}: {rows} గంతఠో స్యోస్, {start} నుంు {end} దవవోల కాడు.",
+        "src_use_sample": "నమూనన డఆట్ఆ వభోడఐ",
+        "src_choose_file": "CSV ఫమ్లీ ఆదాన్నదిండా",
+        "src_power_unit": "దైలోల్లో కభైడ్డోలోల యాల్ల",
+        "src_unit_detected": "{unit} గిఏడుడు దాథనడామోద్దు",
+        "src_rows_mapped": "మీరు {n} కముడ్యంలఁడు",
+        "src_rows_ignored": "న౎దీండాదడఀన్: {cols}",
+        "src_latest": "ఇఛీన రీడింగ {when} ({age} కమ్మ్ంతు)",
+        "src_replaying": "ఫైల్లీ నడ్డు ఇచుడాడీ కాడు, లైవ్య మీటర్ ఫీద నఉడ్డోల్లడ ఠె.",
+        "src_upload_fail": "ఇ ఫైల్లీ వఫ్నఙాల అనుక్కుమడడ్థు: {reason}",
+        "src_need_power": "ఇరైమ్ప్యమ్లలో కభపంబడ్డే మ్యుకీయడీద్దు ఆవశ్యక ఆదాన్దఁడు.",
+        "src_age_now": "ఇంగగాదు కంటడ",
+        "src_age_hours": "{n} గంటడ",
+        "src_age_days": "{n} రోజ్జులో",
+        "cap_pred_unavailable": "ఇ డఆట్ఆసెట్ క్యు స్యోప్ అల్లుగ్ఙ్ల్లడు",
+        "src_recorded": "సమాదింఆ {start} నుండి {end} దాదాప్పు.",
+        "src_note_date_order": "తేదీలను నెల ముందుగా చదివాం (03/01/2024 అంటే మార్చి 3). మీ ఫైల్‌లో రోజు ముందు ఉంటే ISO YYYY-MM-DD కాలమ్‌ను ఉపయోగించండి.",
+        "src_no_appliances": "ఉపకరణ వివరణ మరియు ఆప్టిమైజేషన్ అందుబాటులో లేవు: సబ్‌మీటర్ కాలమ్‌లు కనబడలేదు ({cols}).",
+        "src_below_forecast": "తదుపరి గంట అంచనా చూపబడదు: మోడెల్ నిర్దిష్ట కాలమ్‌ల సమూహంపై శిక్షణ పొందింది, ఈ ఫైల్ వాటిని ఇవ్వదు ({cols}). కింద ఉన్నవన్నీ మీ నిజ రీడింగ్‌లపై మాత్రమే ఆధారపడును.",
+        "src_agg_sum": "మొత్తం",
+        "src_agg_mean": "సగటు",
+        "src_note_missing_cols": "ఏ కాలమ్‌తోనూ సరిపోలలేదు: {cols}.",
+        "src_note_w_converted": "పవర్ కాలమ్‌లను (W) 1000తో భాగించాం, దీనివల్ల kW వచ్చింది.",
+        "src_note_wh_converted": "శక్తి కాలమ్‌లను (Wh) గంటకు కలిపి 1000తో భాగించాం, దీనివల్ల kW వచ్చింది.",
+        "src_note_resampled": "ప్రతి {minutes} నిమిషాలకు ఒక నమూనా; గంట వరుసలుగా క్రీడబడింది ({how}).",
+        "src_note_unit_unsure": "ఈ నమూనా రేట్‌లో ఈ పవర్ కాలమ్ kW లేదా Wh కావచ్చు, కాబట్టి దీనిని ఒక్క ఇంటర్వల్‌కు Wh గా చదివాం. తప్పైతే యూనిట్ ఎంపిక మార్చండి.",
+        "src_note_no_valid_rows": "ఏ ఒక్క వరుసలోనూ చదవగలిగే టైమ్‌స్టాంప్ మరియు సంఖ్యాత్మక పవర్ రెండూ లేవు.",
+        "src_note_no_power": "మొత్తం పవర్ కాలమ్ కనబడలేదు, కాబట్టి వినియోగం, ఖర్చు మరియు ముందస్తు అంచనా లెక్కించలేము.",
+        "src_note_no_timestamp": "టైమ్‌స్టాంప్ కాలమ్ కనబడలేదు, కాబట్టి రీడింగ్‌లను సమయ క్రమంలో అమర్చలేకపోయాము.",
+        "src_note_empty": "ఈ ఫైల్ ఖాళీగా ఉంది.",
+        "src_unreadable": "ఫైల్ CSV లేదా TSV పట్టికగా చదవలేకపోయింది.",
         "sb_viewing_data": "డేటా చూపబడుతోంది",
         "month_label": "నెల",
         "year_label": "సంవత్సరం",
@@ -1412,6 +1556,45 @@ def preset_choices(language=None):
         (t_lang(key, language=language), name)
         for name, key in APPLIANCE_PRESET_KEYS.items()
     ]
+
+
+def format_localized_date(date_value, language=None):
+    """
+    Format a date in the conventional order for the given language, e.g.
+    "27 Sep 2026" for English, "27-09-2026" for Hindi, "2026-09-27" for
+    Kannada and Telugu. Accepts a pd.Timestamp / datetime / date.
+    """
+    if date_value is None or (isinstance(date_value, float) and date_value != date_value):
+        return ""
+    import pandas as _pd
+    try:
+        dt = _pd.Timestamp(date_value)
+    except (ValueError, TypeError):
+        return ""
+    if dt is None or dt is _pd.NaT:
+        return ""
+    lang = language
+    if lang is None:
+        try:
+            lang = st.session_state.get("lang", _FALLBACK_LANG)
+        except Exception:
+            lang = _FALLBACK_LANG
+    fmt = {
+        "en": "day",
+        "hi": "dmy",
+        "kn": "ymd",
+        "te": "ymd",
+    }.get(lang, "day")
+    d, m, y = dt.day, dt.month, dt.year
+    if fmt == "dmy":
+        return f"{d:02d}-{m:02d}-{y}"
+    if fmt == "ymd":
+        return f"{y}-{m:02d}-{d:02d}"
+    try:
+        month = dt.strftime("%b")
+    except (ValueError, AttributeError):
+        month = f"{m:02d}"
+    return f"{d} {month} {y}"
 
 
 def format_localized_month(date_value, language=None):

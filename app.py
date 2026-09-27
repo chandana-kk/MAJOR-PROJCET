@@ -13,6 +13,8 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 import copy
 import calendar as cal
+import io
+import json
 import pickle
 import re
 import hashlib
@@ -31,8 +33,15 @@ from model import (
     load_data, predict_next_period,
     FEATURE_COLS, TARGET, WINDOW_SIZE,
 )
-from data import remap_to_current_dates, shift_forecast_to_current_dates
-from i18n import T, TLIST, LANGS, HOME_TYPES, home_type_label, localized_appliance_category, localized_appliance_label, localized_appliance_type, format_localized_month
+from data import (
+    CLEAN_CSV, remap_to_current_dates, shift_forecast_to_current_dates,
+    SAMPLE_META_PATH,
+)
+from data_source import (
+    MAX_UPLOAD_BYTES, POWER_UNITS, DataSource, normalize_uploaded,
+    source_from_sample, source_from_upload,
+)
+from i18n import T, TLIST, LANGS, HOME_TYPES, home_type_label, localized_appliance_category, localized_appliance_label, localized_appliance_type, format_localized_month, format_localized_date
 from db import get_db
 from features_ui import render_family_tab, render_notifications_tab, render_chat_tab, ensure_login
 
@@ -475,6 +484,239 @@ def fmt_kwh(val):
 def load_data_cached():
     return load_data()
 
+@st.cache_data
+def load_sample_meta():
+    """Description of the bundled dataset, written by data.py."""
+    if os.path.exists(SAMPLE_META_PATH):
+        try:
+            with open(SAMPLE_META_PATH, encoding="utf-8") as fh:
+                return json.load(fh)
+        except (OSError, ValueError):
+            return {}
+    return {}
+
+
+@st.cache_data(show_spinner=False)
+def build_sample_source(days=90):
+    """
+    The bundled demo dataset, with its real measurement window preserved.
+
+    The timestamps are shifted forward so the demo looks current; the shift is
+    recorded on the source so the UI can say plainly that these are sample
+    recordings being replayed, not a live meter.
+    """
+    raw = load_data_cached()
+    meta = load_sample_meta()
+    original = (meta.get("original_start"), meta.get("original_end"))
+    shifted = remap_to_current_dates(raw, last_n_days=days)
+    return source_from_sample(shifted, filename=os.path.basename(CLEAN_CSV),
+                              original_range=original, shifted=True)
+
+
+def get_data_source():
+    """The active dataset: the user's CSV when uploaded, otherwise the sample."""
+    upload = st.session_state.get("data_upload")
+    if upload is not None and upload.get("source") is not None:
+        return upload["source"]
+    return build_sample_source()
+
+
+def active_dataframe():
+    """A defensive copy of the active source, safe for the tabs to mutate."""
+    return get_data_source().df.copy()
+
+
+def source_summary(source):
+    """Human readable provenance for the active dataset, in the active language."""
+    df = source.df
+    if df.empty:
+        return {"kind": source.kind, "title": T("src_upload_title"),
+                "body": T("src_upload_fail", reason=T("src_need_power")),
+                "rows": 0, "caps": source.capabilities}
+    rows = len(df)
+    if source.is_sample:
+        body = T("src_sample_body",
+                 start=format_localized_date(df["datetime"].min()),
+                 end=format_localized_date(df["datetime"].max()))
+        original = source.original_range
+        if original and all(original):
+            body += " (" + T("src_recorded",
+                             start=format_localized_date(original[0]),
+                             end=format_localized_date(original[1])) + ")"
+    else:
+        body = T("src_upload_body",
+                 name=source.label,
+                 rows=f"{rows:,}",
+                 start=format_localized_date(df["datetime"].min()),
+                 end=format_localized_date(df["datetime"].max()))
+    return {
+        "kind": source.kind,
+        "title": T("src_sample_title") if source.is_sample else T("src_upload_title"),
+        "body": body,
+        "rows": rows,
+        "caps": source.capabilities,
+        "original": source.original_range,
+        "age_hours": source.age_hours(),
+        "report": source.report,
+    }
+
+
+def format_data_age(hours):
+    if hours is None:
+        return ""
+    if hours < 1:
+        return T("src_age_now")
+    if hours < 48:
+        return T("src_age_hours", n=int(round(hours)))
+    return T("src_age_days", n=int(round(hours / 24)))
+
+
+def read_uploaded_csv(uploaded):
+    """Read an uploaded CSV without assuming delimiter, index column or encoding."""
+    payload = uploaded.getvalue() if hasattr(uploaded, "getvalue") else uploaded
+    if isinstance(payload, str):
+        payload = payload.encode("utf-8", errors="replace")
+    if payload is None or len(payload) == 0:
+        return None, T("src_upload_fail", reason=T("src_need_power"))
+    if len(payload) > MAX_UPLOAD_BYTES:
+        return None, T("src_upload_fail",
+                       reason=f"{len(payload) / 1024 / 1024:.1f} MB > "
+                              f"{MAX_UPLOAD_BYTES / 1024 / 1024:.0f} MB")
+    last_error = None
+    for kwargs in (
+        {"sep": None, "engine": "python"},
+        {"sep": ",", "encoding": "utf-8-sig"},
+        {"sep": ";", "encoding": "utf-8-sig"},
+        {"sep": "\t", "encoding": "utf-8-sig"},
+        {"sep": ",", "encoding": "latin-1"},
+    ):
+        try:
+            # pandas needs a file-like object; raw bytes raise TypeError.
+            buffer = io.BytesIO(payload)
+            frame = pd.read_csv(buffer, **kwargs)
+        except (ValueError, TypeError, UnicodeDecodeError, pd.errors.ParserError,
+                pd.errors.EmptyDataError) as exc:
+            last_error = exc
+            continue
+        if frame is not None and not frame.empty:
+            return frame, None
+    return None, T("src_upload_fail", reason=T("src_unreadable"))
+
+
+def handle_upload(uploaded, power_unit, signature=None):
+    """Normalize an uploaded CSV and store it as the active data source."""
+    if uploaded is None:
+        return
+    frame, error = read_uploaded_csv(uploaded)
+    if frame is None:
+        st.session_state.data_upload = None
+        st.session_state.data_upload_sig = None
+        st.session_state.data_upload_error = error
+        return
+    canonical, report = normalize_uploaded(frame, power_unit=power_unit)
+    if not report.get("ok") or canonical.empty:
+        reason = T("src_note_no_power")
+        st.session_state.data_upload = None
+        st.session_state.data_upload_sig = None
+        st.session_state.data_upload_error = T("src_upload_fail", reason=reason)
+        return
+    st.session_state.data_upload = {
+        "df": canonical,
+        "source": source_from_upload(canonical, uploaded.name, report=report),
+    }
+    st.session_state.data_upload_sig = signature
+    st.session_state.data_upload_error = None
+    if "simulator" in st.session_state:
+        st.session_state.simulator.reset()
+
+
+def render_data_source_panel():
+    """Sidebar block: upload a CSV, or fall back to the clearly labelled sample."""
+    uploaded = st.file_uploader(T("src_choose_file"), type=["csv", "txt", "tsv"],
+                                key="data_uploader")
+    unit_options = ["auto"] + list(POWER_UNITS.keys())
+    unit_choice = st.selectbox(T("src_power_unit"), unit_options, index=0,
+                               key="data_power_unit")
+    power_unit = None if unit_choice == "auto" else unit_choice
+
+    # Only re-read the file when it (or the chosen unit) actually changed.
+    # Re-parsing a large CSV on every widget interaction is what made the
+    # dashboard crawl once a file was uploaded.
+    signature = None
+    if uploaded is not None:
+        signature = (getattr(uploaded, "name", "upload"),
+                     len(uploaded.getvalue()), power_unit)
+
+    if signature is None:
+        cleared = (st.session_state.get("data_upload") is not None
+                   and st.session_state.get("data_upload_sig") is not None)
+        if cleared:
+            st.session_state.data_upload = None
+            st.session_state.data_upload_sig = None
+            st.session_state.data_upload_error = None
+            if "simulator" in st.session_state:
+                st.session_state.simulator.reset()
+    elif st.session_state.get("data_upload_sig") != signature:
+        handle_upload(uploaded, power_unit, signature)
+
+    if st.session_state.get("data_upload_error"):
+        st.sidebar.error(st.session_state.data_upload_error)
+    elif st.session_state.get("data_upload") is not None:
+        if st.button(T("src_use_sample"), width="stretch", key="sb_back_to_sample"):
+            st.session_state.data_upload = None
+            st.session_state.data_upload_sig = None
+            if "simulator" in st.session_state:
+                st.session_state.simulator.reset()
+            st.rerun()
+
+    source = get_data_source()
+    info = source_summary(source)
+    is_upload = not source.is_sample
+    st.sidebar.markdown(f"""
+    <div class="sb-card" style="margin-top:0.5rem;">
+        <div class="sb-card-title">{info['title']}</div>
+        <div class="sb-card-sub">{info['body']}</div>
+    </div>
+    """, unsafe_allow_html=True)
+    if info.get("original") and all(info["original"]):
+        st.sidebar.markdown(
+            f'<div style="color:rgba(255,255,255,0.35);font-size:0.66rem;margin-top:-0.3rem;">'
+            f'{format_localized_date(info["original"][0])} – '
+            f'{format_localized_date(info["original"][1])}</div>',
+            unsafe_allow_html=True)
+    st.sidebar.markdown(
+        f'<div style="color:rgba(255,255,255,0.35);font-size:0.66rem;">'
+        f'{T("src_replaying")}</div>', unsafe_allow_html=True)
+
+    report = info.get("report") or {}
+    if not source.is_sample and report.get("applied_unit"):
+        st.sidebar.markdown(
+            f'<div style="color:rgba(255,255,255,0.35);font-size:0.66rem;">'
+            f'{T("src_unit_detected", unit=report["applied_unit"])}</div>',
+            unsafe_allow_html=True)
+    if not source.is_sample and report.get("unit_confident") is False:
+        st.sidebar.warning(T("src_note_unit_unsure"))
+    mapped = len([v for v in report.get("columns", {}).values() if v != "datetime"])
+    if is_upload and mapped:
+        st.sidebar.markdown(
+            f'<div style="color:rgba(255,255,255,0.35);font-size:0.66rem;">'
+            f'{T("src_rows_mapped", n=mapped)}</div>', unsafe_allow_html=True)
+    ignored = report.get("ignored") or []
+    if is_upload and ignored:
+        st.sidebar.markdown(
+            f'<div style="color:rgba(255,255,255,0.3);font-size:0.64rem;">'
+            f'{T("src_rows_ignored", cols=", ".join(map(str, ignored[:6])))}</div>',
+            unsafe_allow_html=True)
+    for code, params in (report.get("note_codes") or [])[:3]:
+        params = dict(params)
+        if "how" in params:
+            params["how"] = T("src_agg_sum" if params["how"] == "sum"
+                              else "src_agg_mean")
+        st.sidebar.markdown(
+            f'<div style="color:rgba(255,255,255,0.32);font-size:0.64rem;">'
+            f'{T(code, **params)}</div>', unsafe_allow_html=True)
+
+
 @st.cache_resource
 def load_xgb():
     with open(XGB_PATH, "rb") as f:
@@ -515,11 +757,26 @@ def compute_scaling_factor(home_details):
 
 
 def get_simulator():
+    """
+    The replay simulator, retargeted whenever the active data source changes.
+
+    The simulator replays whichever frame is active, so an upload replaces the
+    bundled sample instead of the dashboard quietly showing sample rows.
+    """
     if "simulator" not in st.session_state:
         sim = ReplaySimulator(delay=2)
         sim.start()
         st.session_state.simulator = sim
-    return st.session_state.simulator
+        st.session_state.simulator_source = None
+    sim = st.session_state.simulator
+
+    source = get_data_source()
+    signature = (source.kind, source.label, len(source.df),
+                 str(source.df["datetime"].max()) if not source.df.empty else "")
+    if st.session_state.get("simulator_source") != signature:
+        sim.set_data(source.df)
+        st.session_state.simulator_source = signature
+    return sim
 
 
 def render_login_screen():
@@ -920,6 +1177,8 @@ def render_sidebar():
         st.markdown(f'<div style="color:rgba(255,255,255,0.35);font-size:0.68rem;margin-top:-0.5rem;">{T("sb_restart_hint")}</div>',
                    unsafe_allow_html=True)
         st.markdown('<div style="height:1px;background:rgba(255,255,255,0.1);margin:0.6rem 0;"></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="sb-section-label">{T("sb_section_data")}</div>', unsafe_allow_html=True)
+        render_data_source_panel()
         if st.button(T("btn_sign_out"), width="stretch", key="sb_signout"):
             if "simulator" in st.session_state:
                 st.session_state.simulator.stop()
@@ -1254,15 +1513,24 @@ def _main_dashboard_inner():
     """, unsafe_allow_html=True)
 
     with st.spinner(T("spinner_preparing")):
-        raw_data = load_data_cached()
+        source = get_data_source()
+        raw_data = active_dataframe()
         xgb_model = load_xgb()
         lstm_model = load_lstm()
         scaler = load_scaler()
         meta = load_meta()
         forecast_df = load_forecast()
 
-    full_data = remap_to_current_dates(raw_data, last_n_days=90)
-    if not forecast_df.empty:
+    if raw_data is None or raw_data.empty:
+        st.error(T("src_upload_fail", reason=T("src_need_power")))
+        return
+
+    src_info = source_summary(source)
+    can_predict = src_info["caps"].get("prediction", {}).get("enabled", False)
+    can_appliances = src_info["caps"].get("appliances", {}).get("enabled", False)
+
+    full_data = raw_data
+    if not forecast_df.empty and can_predict:
         forecast_df = shift_forecast_to_current_dates(forecast_df, raw_data, full_data)
 
     full_data = full_data.copy()
@@ -1274,7 +1542,14 @@ def _main_dashboard_inner():
     sim = get_simulator()
     hybrid_mae = meta.get("hybrid_mae", 0.15)
 
-    live_row = sim.get_live_row_for_current_time(full_data)
+    # Only the shifted sample dataset may be matched against the wall clock.
+    # An upload keeps its real timestamps, so its "current" reading is simply
+    # the newest one it contains.
+    if source.is_sample:
+        live_row = sim.get_live_row_for_current_time(full_data)
+    else:
+        replayed = sim.get_full_history()
+        live_row = replayed.iloc[-1].to_dict() if not replayed.empty else None
     if live_row is None:
         live_row = sim.latest_row
 
@@ -1283,12 +1558,22 @@ def _main_dashboard_inner():
 
     if live_row:
         gap = live_row.get(TARGET, 0)
+        row_time = live_row.get("datetime")
+        when_text = ""
+        if row_time is not None and not pd.isna(row_time):
+            when_text = T("src_latest",
+                          when=format_localized_date(row_time),
+                          age=format_data_age(
+                              (pd.Timestamp.now() - pd.Timestamp(row_time))
+                              .total_seconds() / 3600.0))
         st.markdown(f"""
         <div class="live-bar">
             <div class="live-dot"></div>
             <span class="live-label">{T('live_label')}</span>
             <span style="color:rgba(0,0,0,0.3);">&middot;</span>
             <span style="color:#6B7280;">{T('live_updated')}</span>
+            <span style="color:rgba(0,0,0,0.3);">&middot;</span>
+            <span style="color:#6B7280;">{when_text}</span>
             <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
                 <div class="data-progress" style="width:80px;" title="{rows_played:,} / {total_rows:,}">
                     <div class="data-progress-fill" style="width:{progress_pct*100:.0f}%;"></div>
@@ -1296,22 +1581,42 @@ def _main_dashboard_inner():
             </div>
         </div>
         """, unsafe_allow_html=True)
+        # Say plainly what the numbers above are based on.
+        st.info(f"{src_info['title']} — {src_info['body']} {T('src_replaying')}")
+        missing_notes = []
+        if not can_predict:
+            missing_notes.append(T(
+                "src_below_forecast",
+                cols=", ".join(src_info["caps"]["prediction"]["missing"])))
+        if not can_appliances:
+            missing_notes.append(T(
+                "src_no_appliances",
+                cols=", ".join(src_info["caps"]["appliances"]["missing"])))
+        for note in missing_notes:
+            st.warning(note)
     else:
         st.info(T("getting_ready"))
         return
 
     replay_window_raw = sim.get_window(WINDOW_SIZE + 10)
 
-    # Predict on the raw demo readings, then apply the household scaling factor
+    # Predict on the raw readings, then apply the household scaling factor
     # once to the outputs. Pre-scaling the inputs would double-scale the LSTM,
     # which consumes Global_active_power as one of its input features.
-    pred_kw, xgb_p, lstm_p, pred_info = predict_next_period(
-        live_row, xgb_model, lstm_model, scaler, replay_window_raw,
-        return_info=True, weights=meta.get("hybrid_weights"),
-    )
+    if can_predict:
+        pred_kw, xgb_p, lstm_p, pred_info = predict_next_period(
+            live_row, xgb_model, lstm_model, scaler, replay_window_raw,
+            return_info=True, weights=meta.get("hybrid_weights"),
+        )
+    else:
+        pred_kw, xgb_p, lstm_p = gap, None, None
+        pred_info = {"lstm_used": False, "lstm_reason": "unsupported_dataset",
+                     "w_xgb": 1.0, "w_lstm": 0.0}
     pred_kw *= sf
-    xgb_p *= sf
-    lstm_p *= sf
+    if xgb_p is not None:
+        xgb_p *= sf
+    if lstm_p is not None:
+        lstm_p *= sf
     uncertainty = hybrid_mae * sf
     lower = max(0, pred_kw - uncertainty)
     upper = pred_kw + uncertainty

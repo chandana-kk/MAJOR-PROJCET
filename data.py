@@ -14,6 +14,7 @@ Run FIRST before anything else:
     python data.py
 """
 
+import json
 import os
 import zipfile
 import urllib.request
@@ -26,6 +27,7 @@ import pandas as pd
 DATA_DIR = "data"
 RAW_TXT = os.path.join(DATA_DIR, "household_power_consumption.txt")
 CLEAN_CSV = os.path.join(DATA_DIR, "cleaned_energy_data.csv")
+SAMPLE_META_PATH = os.path.join(DATA_DIR, "sample_meta.json")
 
 # UCI ML Repository download URL
 UCI_URL = (
@@ -179,23 +181,29 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def remap_to_current_dates(df: pd.DataFrame, last_n_days: int = 90) -> pd.DataFrame:
+def remap_to_current_dates(df: pd.DataFrame, last_n_days: int = 90,
+                           anchor_end=None) -> pd.DataFrame:
     """
-    Re-map the dataset's timestamps so the most recent data points correspond
-    to today's date range, while preserving ALL usage values and patterns.
+    Re-map the dataset's timestamps so the most recent data point falls on the
+    current hour, while preserving ALL usage values and patterns.
 
-    Keeps each row's Hour, Day_of_week, and relative position in the dataset
-    exactly as they are (preserving real usage patterns). Only the calendar
-    dates are shifted.
+    Keeps each row's hour-of-day, day-of-week and relative position in the
+    dataset exactly as they are (preserving real usage patterns). Only the
+    calendar dates are shifted.
 
     How it works:
       1. Takes the last `last_n_days` worth of hourly data from the dataset.
-      2. Sets the FIRST row's timestamp to "today minus N days" at midnight.
-      3. Every subsequent row's timestamp increases at the same hourly interval
-         as the original data.
+      2. Anchors the LAST row on the current hour (or on `anchor_end`).
+      3. Every earlier row keeps the original spacing between readings.
 
-    Result: the "latest" row has a timestamp of today or yesterday, and the
-    calendar view shows the CURRENT month by default.
+    Anchoring on the end rather than on "today minus N days at midnight"
+    matters: the window usually holds a fractional number of days, and
+    starting from midnight used to leave the newest reading several days
+    behind the clock.
+
+    NOTE: this fabricates freshness and is only ever applied to the bundled
+    sample data. The UI labels that data as a sample; user uploads keep their
+    real timestamps.
 
     Parameters
     ----------
@@ -203,6 +211,8 @@ def remap_to_current_dates(df: pd.DataFrame, last_n_days: int = 90) -> pd.DataFr
         Must have a 'datetime' column (already cleaned and resampled).
     last_n_days : int
         Number of trailing days to include in the remapped window (default 90).
+    anchor_end : pd.Timestamp, optional
+        Timestamp to assign to the final row. Defaults to the current hour.
 
     Returns
     -------
@@ -223,19 +233,15 @@ def remap_to_current_dates(df: pd.DataFrame, last_n_days: int = 90) -> pd.DataFr
         median_interval = df["datetime"].diff().dropna().median()
     else:
         median_interval = pd.Timedelta(hours=1)
+    if not isinstance(median_interval, pd.Timedelta) or median_interval <= pd.Timedelta(0):
+        median_interval = pd.Timedelta(hours=1)
 
-    # Map the first row to "today minus N days" at midnight
-    # If data spans fewer days than last_n_days, anchor so latest data ends near today
-    today = pd.Timestamp.now().normalize()
-    actual_span = (df["datetime"].max() - df["datetime"].min()).total_seconds() / 86400
-    effective_days = min(last_n_days, max(actual_span, 1))
-    anchor = today - pd.Timedelta(days=effective_days)
+    end = pd.Timestamp(anchor_end) if anchor_end is not None else pd.Timestamp.now()
+    end = end.floor("h")
+    start = end - (len(df) - 1) * median_interval
 
-    # Create new datetime range starting from anchor at the original interval
-    new_datetimes = pd.date_range(
-        start=anchor, periods=len(df), freq=median_interval
-    )
-    df["datetime"] = new_datetimes
+    df["datetime"] = pd.date_range(start=start, periods=len(df),
+                                   freq=median_interval)
 
     # Re-extract time features from the new timestamps
     df["hour"] = df["datetime"].dt.hour
@@ -244,7 +250,9 @@ def remap_to_current_dates(df: pd.DataFrame, last_n_days: int = 90) -> pd.DataFr
     df["day_of_month"] = df["datetime"].dt.day
     df["week_of_year"] = df["datetime"].dt.isocalendar().week.astype(int)
 
-    print(f"[OK] Remapped {len(df):,} rows: {df['datetime'].min()} -> {df['datetime'].max()}")
+    lag_hours = (end - df["datetime"].max()).total_seconds() / 3600.0
+    print(f"[OK] Remapped {len(df):,} rows: {df['datetime'].min()} -> {df['datetime'].max()}"
+          f" (newest reading is {lag_hours:.0f}h from now)")
     return df
 
 
@@ -289,16 +297,39 @@ def shift_forecast_to_current_dates(forecast_df: pd.DataFrame, source_raw_df: pd
 
 
 def main():
-    """Full pipeline: download -> clean -> resample -> feature engineer -> remap -> save."""
+    """
+    Full pipeline: download -> clean -> resample -> feature engineer -> save.
+
+    The dataset is saved with its REAL timestamps. The demo shift that makes
+    these 2006-2010 readings look recent is applied at runtime by the app
+    (see :func:`remap_to_current_dates`), which labels the result as sample
+    data. Baking the shift into the stored file made historical records
+    indistinguishable from live ones in any downstream copy of the CSV.
+    """
     download_dataset()
     df = load_and_clean()
     df = resample_hourly(df)
     df = engineer_features(df)
-    df = remap_to_current_dates(df, last_n_days=90)
 
     # Save cleaned dataset
     os.makedirs(DATA_DIR, exist_ok=True)
     df.to_csv(CLEAN_CSV, index=False)
+
+    # Record what this sample really is, so the dashboard can say so instead
+    # of presenting 2006-2010 recordings as live readings.
+    meta = {
+        "kind": "sample",
+        "source": "UCI Individual household electric power consumption",
+        "source_url": "https://archive.ics.uci.edu/ml/datasets/Individual+household+electric+power+consumption",
+        "original_start": str(df["datetime"].min()),
+        "original_end": str(df["datetime"].max()),
+        "rows": int(len(df)),
+        "granularity": "hourly (aggregated from 1-minute readings)",
+        "note": "Demo sample. The dashboard shifts these timestamps forward "
+                "for display and labels the result as sample data.",
+    }
+    with open(SAMPLE_META_PATH, "w", encoding="utf-8") as fh:
+        json.dump(meta, fh, indent=2)
 
     print(f"\n{'='*55}")
     print(f"  CLEANED DATASET SAVED -> {CLEAN_CSV}")
@@ -306,6 +337,8 @@ def main():
     print(f"  Rows    : {len(df):,}")
     print(f"  Columns : {list(df.columns)}")
     print(f"  Range   : {df['datetime'].min()} -> {df['datetime'].max()}")
+    print("  Note    : real timestamps kept; the dashboard applies its")
+    print("            clearly labelled demo shift at runtime.")
     print(f"{'='*55}")
 
 

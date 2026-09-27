@@ -98,6 +98,24 @@ class ReplaySimulator:
             self._index = 0
             self._current_row = None
 
+    def set_data(self, df: pd.DataFrame, restart: bool = True) -> None:
+        """
+        Replay a different frame (e.g. a user upload) instead of the bundled CSV.
+
+        This rewinds the replay so the newly supplied data is the only thing
+        ever surfaced.
+        """
+        if df is None or df.empty:
+            return
+        was_running = self._running
+        self.stop()
+        with self._lock:
+            self._df = df.reset_index(drop=True)
+            self._index = 0
+            self._current_row = None
+        if restart or was_running:
+            self.start()
+
     @property
     def latest_row(self) -> dict | None:
         """Return the most recently replayed row as a dict."""
@@ -134,26 +152,41 @@ class ReplaySimulator:
 
     def get_live_row_for_current_time(self, full_df: pd.DataFrame) -> dict | None:
         """
-        Return the row from full_df whose hour-of-day matches the current
-        real-world time, making the dashboard feel genuinely "live."
+        Return a row from full_df whose hour-of-day matches the current
+        real-world time.
 
-        If it's 3 PM right now, the headline shows the data row that was
-        originally recorded around 3 PM (re-dated to today via remapping).
+        This is a demo affordance for the SAMPLE dataset, whose timestamps were
+        shifted forward: if it is 3 PM now, the row originally recorded around
+        3 PM carries today's date, so the headline tracks the clock.
+
+        It must NOT be used for a user upload. Those timestamps are real, so a
+        row matching the current hour-of-day could be from any day in the file
+        and would be a fabricated "current" reading. Callers are expected to
+        use :attr:`latest_row` there instead.
 
         Parameters
         ----------
         full_df : pd.DataFrame
-            The full (remapped, scaled) dataset loaded by the dashboard.
+            The full dataset loaded by the dashboard.
 
         Returns
         -------
-        dict or None — the matching row as a dict, or None if not found.
+        dict or None - the matching row as a dict, or None if not found.
         """
         now = pd.Timestamp.now()
         current_hour = now.hour
 
-        if full_df.empty:
+        if full_df is None or full_df.empty:
             return None
+
+        if "datetime" not in full_df.columns:
+            return full_df.iloc[-1].to_dict()
+
+        # Only treat a row as "current" when its full timestamp is recent.
+        recent_cutoff = now - pd.Timedelta(hours=2)
+        fresh = full_df[full_df["datetime"] >= recent_cutoff]
+        if not fresh.empty:
+            return fresh.iloc[-1].to_dict()
 
         # Find rows with matching hour-of-day, return the latest one
         hour_mask = full_df["datetime"].dt.hour == current_hour
