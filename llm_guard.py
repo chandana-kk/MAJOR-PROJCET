@@ -64,6 +64,44 @@ GUARD_MESSAGES = {
     },
 }
 
+# Short markers that mean "this data is not available", per language. Kept here
+# rather than in i18n.py because they are guard configuration, not UI copy, and
+# the guard is imported by tools that should not depend on the Streamlit app.
+_NO_DATA_PHRASES = {
+    "en": ["don't have", "do not have", "not available", "no data", "unable to",
+           "cannot determine", "can't determine", "insufficient", "missing",
+           "not enough", "could not", "cannot be"],
+    "hi": ["उपलब्ध नहीं", "मेरे पास नहीं", "कोई डेटा नहीं", "पर्याप्त नहीं",
+           "नहीं पता", "ज्ञात नहीं", "संभव नहीं"],
+    "kn": ["ಲಭ್ಯವಿಲ್ಲ", "ನನ್ನಲ್ಲಿ ಇಲ್ಲ", "ಡೇಟಾ ಇಲ್ಲ", "ಸಾಕಷ್ಟು ಇಲ್ಲ",
+           "ಗೊತ್ತಿಲ್ಲ", "ತಿಳಿಯುವುದಿಲ್ಲ"],
+    "te": ["సమాచారం లేదు", "డేటా లేదు", "సరಿಪೋಲಿಲ್ಲ", "తెలಯದು",
+           "అందుబాటులో లేదు", "లేదు"],
+}
+# Telugu "లేదు" is a single common negator, so it is matched as its own token
+# rather than as a bare substring, which would fire on any word containing it.
+_TE_NO_DATA_TOKEN = re.compile(r"^[^\w]*" + re.escape("లేదు") + r"[^\w]*$")
+
+
+def no_data_phrases(language: str = "en") -> List[str]:
+    """Markers of an honest "no data" reply in the response's own language."""
+    return _NO_DATA_PHRASES.get(language, _NO_DATA_PHRASES["en"])
+
+
+def admits_no_data(response: str, language: str = "en") -> bool:
+    """True when the response says, in its own language, that data is missing."""
+    if not response:
+        return False
+    lower = response.lower()
+    for phrase in no_data_phrases(language):
+        if language == "te" and phrase == "లేదు":
+            if any(_TE_NO_DATA_TOKEN.match(token) for token in lower.split()):
+                return True
+            continue
+        if phrase in lower:
+            return True
+    return False
+
 
 class LLMHallucinationGuard:
     """
@@ -115,6 +153,10 @@ class LLMHallucinationGuard:
         """
         Extract all numbers from text (with context).
         Returns a dict mapping approximate context to extracted number.
+
+        Keys are keyed on the match offset, which is unique. Keying on the
+        surrounding text instead silently dropped numbers whenever two claims
+        shared a 30-character window, letting an ungrounded value through.
         
         Parameters
         ----------
@@ -127,6 +169,8 @@ class LLMHallucinationGuard:
             Mapping of {description: number_value}
         """
         numbers = {}
+        if not text:
+            return numbers
         
         # Skip numbers that are parts of ISO date/time tokens (e.g. "2025-09-10 14:00"
         # or "09/10/2025 02:30 PM"). These come verbatim from tool data and are never
@@ -136,31 +180,63 @@ class LLMHallucinationGuard:
             r"|\d{1,2}[-/]\d{1,2}[-/]\d{2,4}(?:[\sT]\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?)?"
         )
         cleaned_text = datetime_token_re.sub(" ", text)
+
+        # A leading minus, or a nearby "decrease" cue, makes a claim negative.
+        # Ignoring the sign let "down 12 kWh" validate against a grounded 12.
+        negative_cue = re.compile(
+            r"(?:decreas\w*|drop\w*|fall\w*|fell|down|lower\w*|reduc\w*|sav\w*"
+            r"|less|lesser|below|under|घट|कम|ಕಡಿಮೆ|తగ్గ)\s*"
+            r"(?:by|of|about|around|approximately)?\s*:?\s*$",
+            re.IGNORECASE,
+        )
         
+        def sign_at(index: int) -> float:
+            prefix = cleaned_text[max(0, index - 40):index]
+            if prefix.rstrip().endswith("-"):
+                return -1.0
+            if negative_cue.search(prefix):
+                return -1.0
+            return 1.0
+
+        def record(prefix: str, start: int, end: int, raw: str) -> None:
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                return
+            context = cleaned_text[max(0, start - 20):end + 20]
+            numbers[f"{prefix}@{start}_{context[:30]}"] = sign_at(start) * value
+
         # Pattern for "Rs. XXX" or "₹ XXX" or "Rs XXX"
         rs_pattern = r'(?:Rs\.?|₹)\s*([0-9,]+(?:\.\d{1,2})?)'
         for match in re.finditer(rs_pattern, cleaned_text, re.IGNORECASE):
             num_str = match.group(1).replace(',', '')
-            value = float(num_str) if num_str else 0
-            context = cleaned_text[max(0, match.start()-20):match.end()+20]
-            numbers[f"rs_{len(numbers)}_{context[:30]}"] = value
-        
+            if not num_str:
+                continue
+            context = cleaned_text[max(0, match.start() - 20):match.end() + 20]
+            numbers[f"rs@{match.start()}_{context[:30]}"] = (
+                sign_at(match.start()) * float(num_str))
+        # Consume those figures so the plain-number pass does not also pick them
+        # up: "Rs. 100" used to be extracted twice and checked twice. The span is
+        # blanked with equal-length padding so later match offsets, and therefore
+        # the sign lookups, still line up with the original text.
+        def blank(_match):
+            return " " * len(_match.group(0))
+
+        consumed = re.sub(rs_pattern, blank, cleaned_text, flags=re.IGNORECASE)
+
         # Pattern for "XX %" or "XX%"
         pct_pattern = r'(\d+(?:\.\d{1,2})?)\s*%'
-        for match in re.finditer(pct_pattern, cleaned_text):
-            value = float(match.group(1))
-            context = cleaned_text[max(0, match.start()-20):match.end()+20]
-            numbers[f"pct_{len(numbers)}_{context[:30]}"] = value
+        for match in re.finditer(pct_pattern, consumed):
+            record("pct", match.start(), match.end(), match.group(1))
+        consumed = re.sub(pct_pattern, blank, consumed)
         
         # Pattern for plain numbers >= 10 (assume significant claims).
         # The lookbehind/lookahead stop the matcher from splitting off the
         # fractional part of a decimal (e.g. "3.50 kW" must not yield "50").
         num_pattern = r'(?<![.\d])(\d{2,}(?:\.\d+)?)(?![\d.])\s*(?:kWh|units?|days?|hours?|months?|years?|people|persons?)?'
-        for match in re.finditer(num_pattern, cleaned_text):
-            value = float(match.group(1))
-            if value >= 10:
-                context = text[max(0, match.start()-20):match.end()+20]
-                numbers[f"num_{len(numbers)}_{context[:30]}"] = value
+        for match in re.finditer(num_pattern, consumed):
+            if float(match.group(1)) >= 10:
+                record("num", match.start(), match.end(), match.group(1))
         
         return numbers
     
@@ -191,10 +267,11 @@ class LLMHallucinationGuard:
         # Check if response admits missing data appropriately.
         # Grounding evidence = any registered tool result or computed stat.
         # If nothing was grounded yet, the response must say data is unavailable.
-        if self.extracted_numbers == {} and self.tool_results == {} and not any(
-            phrase in response.lower()
-            for phrase in ["don't have", "not available", "no data", "unable to", 
-                          "cannot determine", "insufficient", "missing"]
+        # The phrases have to match the response's language: this used to test an
+        # English-only list against Hindi, Kannada and Telugu answers, so every
+        # correct "I don't have that data" reply in those languages was flagged.
+        if self.extracted_numbers == {} and self.tool_results == {} and not admits_no_data(
+            response, language
         ):
             issues.append(msgs["missing_data_instruction"])
         
@@ -209,7 +286,20 @@ class LLMHallucinationGuard:
                     found_match = True
                     break
             
-            if not found_match and response_val >= 10:
+            # Also accept a value that is the rounded form of a grounded one,
+            # which is how a kW figure legitimately becomes a whole number.
+            # The sign is kept here on purpose: comparing magnitudes would let
+            # "went down 12 kWh" validate against a grounded increase of 12.
+            if not found_match:
+                for stat_name, stat_val in self.extracted_numbers.items():
+                    if abs(round(stat_val) - response_val) < 0.51:
+                        found_match = True
+                        break
+            
+            # The extractor already decided which numbers are significant, so
+            # every one of them is checked. Re-filtering on ">= 10" here let a
+            # fabricated "Rs. 5" through.
+            if not found_match:
                 unmatched_numbers.append((desc, response_val))
         
         if unmatched_numbers:
@@ -228,11 +318,10 @@ class LLMHallucinationGuard:
         # Generate corrected version if issues found
         corrected = response
         if issues:
-            corrected = (
-                f"{response}\n\n"
-                f"⚠️ Guard Note: {msgs['validation_error']}. "
-                f"{msgs['missing_data_instruction']}"
-            )
+            note = msgs["validation_error"]
+            if any("missing_data_instruction" in issue for issue in issues):
+                note += " " + msgs["missing_data_instruction"]
+            corrected = f"{response}\n\n⚠️ Guard Note: {note}"
         
         return len(issues) == 0, issues, corrected
     

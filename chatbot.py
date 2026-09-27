@@ -39,7 +39,7 @@ _QUESTION_TERMS = {
     "why_compare": {
         "en": ["why", "higher", "lower", "compare", "compared", "versus", "change",
                "went up", "went down", "increased", "decreased", "difference"],
-        "hi": ["क्यों", "अधिक", "कम", "तुलना", "बढ़", "घट", "बदल", "अंतर"],
+        "hi": ["क्यों", "अधिक", "तुलना", "बढ़", "घट", "बदल", "अंतर"],
         "kn": ["ಏಕೆ", "ಹೆಚ್ಚು", "ಕಡಿಮೆ", "ಹೋಲಿಕೆ", "ಏರಿತು", "ಇಳಿಯಿತು", "ವ್ಯತ್ಯಾಸ", "ಬದಲಾವಣೆ"],
         "te": ["ఎందుకు", "ఎక్కువ", "తక్కువ", "పోలిక", "పెరిగాయి", "తగ్గాయి", "మార్పు", "తేడా"],
     },
@@ -51,24 +51,30 @@ _QUESTION_TERMS = {
         "te": ["చరిత్ర", "గత", "ఎంత", "వినియోగం", "సగటు", "వారం", "రోజు"],
     },
     "appliance": {
-        "en": ["appliance", "which", "most", "device", "uses the", "power use", "consume"],
-        "hi": ["उपकरण", "कौन", "सबसे", "यंत्र", "बिजली", "खर्च"],
-        "kn": ["ಉಪಕರಣ", "ಯಾವ", "ಹೆಚ್ಚು", "ಸಾಧನ", "ವಿದ್ಯುತ್"],
-        "te": ["ఉపకరణం", "ఏ", "ఎక్కువ", "పరికరం", "విద్యుత్"],
+    "en": ["appliance", "most", "device", "consume"],
+    "hi": ["उपकरण", "सबसे", "यंत्र"],
+    "kn": ["ಉಪಕರಣ", "ಸಾಧನ", "ಹೆಚ್ಚು ಬಳಸುವ"],
+    "te": ["ఉపకరణం", "పరికరం", "ఎక్కువ ఉపయోగించే"],
     },
     "prediction": {
         "en": ["predict", "forecast", "next month", "monthly", "cost", "expensive",
-               "rupee", "rs ", "projection", "expected", "spend"],
-        "hi": ["अनुमान", "पूर्वानुमान", "अगले", "मासिक", "लागत", "महंगा", "रुपये", "प्रोजेक्शन"],
-        "kn": ["ಅಂದಾಜು", "ಮುನ್ಸೂಚನೆ", "ಮುಂದಿನ", "ಮಾಸಿಕ", "ವೆಚ್ಚ", "ದುಬಾರಿ", "ರೂ"],
-        "te": ["అంచనా", "ఫోరెకాస్ట్", "తదుపరి", "మాసిక", "ఖర్చు", "ఖరీదు", "రూ"],
+               "rupee", "rs ", "projection", "expected", "spend", "bill"],
+        "hi": ["अनुमान", "पूर्वानुमान", "अगले", "मासिक", "लागत", "महंगा", "रुपये",
+               "प्रोजेक्शन", "बिल", "खर्च", "बिजली"],
+        "kn": ["ಅಂದಾಜು", "ಮುನ್ಸೂಚನೆ", "ಮುಂದಿನ", "ಮಾಸಿಕ", "ವೆಚ್ಚ", "ದುಬಾರಿ", "ರೂ",
+               "ಬಿಲ್", "ವಿದ್ಯುತ್"],
+        "te": ["అంచనా", "ఫోరెకాస్ట్", "తదుపరి", "మాసిక", "ఖర్చు", "ఖరీదు", "రూ",
+               "బిల్", "విద్యుత్"],
     },
     "optimize": {
         "en": ["reduce", "save", "lower", "optimize", "tip", "efficient", "how can i",
                "cut", "switch off", "less"],
-        "hi": ["कम", "बचाएँ", "घटाएँ", "सुधार", "सुझाव", "कुशल", "बंद"],
-        "kn": ["ಕಡಿಮೆ", "ಉಳಿಸಿ", "ಸುಧಾರಿಸಿ", "ಸಲಹೆ", "ದಕ್ಷತೆ", "ಆಫ್"],
-        "te": ["తగ్గించు", "ఆదా", "మెరుగు", "సూచన", "దక్షత"],
+        "hi": ["बचाएँ", "बचाएं", "बचाऊँ", "बचा", "घटाएँ", "घटाऊँ", "घटाने", "सुधार",
+               "सुझाव", "कुशल", "बंद", "कम कर"],
+        "kn": ["ಉಳಿಸಿ", "ಉಳಿಸು", "ಸುಧಾರಿಸಿ", "ಸಲಹೆ", "ದಕ್ಷತೆ", "ಆಫ್",
+               "ಕಡಿಮೆ ಮಾಡ", "ಕಡಿಮೆ ಮಾಡಿ"],
+        "te": ["తగ్గించు", "ఆదా", "మెరుగు", "సూచన", "దక్షత", "తగ్గించండి",
+               "తగ్గించాలి"],
     },
     "notifications": {
         "en": ["notification", "email", "alert", "log", "sent", "message received",
@@ -79,13 +85,71 @@ _QUESTION_TERMS = {
     },
 }
 
+# Appliance names, asked about directly far more often than "which appliance
+# uses the most". Without these, "how much does the geyser use" matched nothing
+# in particular and fell through to a generic usage answer.
+_APPLIANCE_TERMS = {
+    "en": ["ac", "air conditioner", "aircon", "fridge", "refrigerator", "washing machine",
+           "washer", "water heater", "geyser", "oven", "microwave", "tubelight",
+           "tube light", "light", "lights", "fan", "tv", "television", "laptop",
+           "computer", "dishwasher", "heater", "iron", "mixer"],
+    "hi": ["एसी", "एयर कंडीशनर", "फ्रिज", "वाशिंग मशीन", "वॉशिंग मशीन", "वॉशर मशीन",
+           "वॉशिंग मैचिन", "गीजर", "गेजर", "वॉटर हीटर", "ओवन", "माइक्रोवेव",
+           "ट्यूबलाइट", "ट्यूब लाइट", "पंखा", "टीवी", "लैपटॉप", "कंप्यूटर",
+           "डिशवॉशर", "इस्तरी"],
+    "kn": ["ಎಸಿ", "ಏರ್ ಕಂಡಿಷನರ್", "ಫ್ರಿಡ್ಜ್", "ಒಲೆ", "ವಾಷಣ ಯಂತ್ರ", "ವಾಷಣ ಮೈಸಿನ್",
+           "ಗೇಸರ್", "ನೀರಿನ ಹೆಚ್ಚುವರ", "ಮೈಕ್ರೋವೇವ್", "ಟ್ಯೂಬ್‌ಲೈಟ್", "ಫ್ಯಾನ್", "ಟಿವಿ",
+           "ಲ್ಯಾಪ್‌ಟಾಪ್", "ಕಂಪ್ಯೂಟರ್", "ಡಿಶ್‌ವಾಶರ್", "ಇಸ್ತ್ರಿ"],
+    "te": ["ఏసీ", "ఎయిర్ కండిషనర్", "ఫ్రిజ్", "వాషింగ్ మెషిన్", "గేసర్", "వాటర్ హీటర్",
+           "ఓవెన్", "మైక్రోవేవ్", "ట్యూబ్‌లైట్", "ఫ్యాన్", "టీవీ", "ల్యాప్‌టాప్",
+           "కంప్యూటర్", "డిశ్‌వాషర్", "ఇస్త్రీ"],
+}
+
+# Keyword fragments shorter than this are unusable. Scripts without spaces fuse
+# morphemes, so "ఏ" (which) sits inside a large share of Telugu vocabulary and
+# "कम" (less) sits inside "कम्प्यूटर" (computer); both produced false hits.
+_MIN_KEYWORD_CHARS = 3
+
+_compiled_cache: Dict[str, Any] = {}
+
+
+def _keyword_pattern(keyword: str):
+    """
+    Compile a keyword matcher.
+
+    Latin-script keywords are matched on word boundaries so "log" no longer
+    fires on "login" and "less" no longer fires on "useless". Indic keywords are
+    matched as substrings, because those scripts are written without spaces and
+    a word-boundary match would reject every inflected form.
+    """
+    cached = _compiled_cache.get(keyword)
+    if cached is not None:
+        return cached
+    if keyword.isascii():
+        pattern = re.compile(r"(?<![a-z0-9])" + re.escape(keyword.lower())
+                             + r"(?![a-z0-9])")
+    else:
+        pattern = re.compile(re.escape(keyword))
+    _compiled_cache[keyword] = pattern
+    return pattern
+
+
+def _matches_topic(lower: str, keywords) -> bool:
+    for keyword in keywords:
+        if len(keyword.strip()) < _MIN_KEYWORD_CHARS and not keyword.isascii():
+            continue
+        if _keyword_pattern(keyword).search(lower):
+            return True
+    return False
+
+
 _OUT_OF_SCOPE = {
     "en": ["weather", "stock", "share market", "movie", "film", "news", "sport", "cricket",
            "recipe", "cooking", "travel", "covid", "traffic", "politics", "history of "],
     "hi": ["मौसम", "शेयर", "फिल्म", "समाचार", "खेल", "क्रिकेट", "पकवान", "यात्रा", "कोविड",
            "यातायात", "राजनीति"],
-    "kn": ["ಹವಾಮಾನ", "ಷೇರು", "ಚಲನಚಿತ್ರ", "ಸುದ್ದಿ", "ಕ್ರೀಡೆ", "ಕ್ರಿಕೆಟ್", "ಅಡುಗೆ", "ಪ್ರಯಾಣ",
-           "ಕೋವಿಡ್", "ಸಂಚಾರ", "ರಾಜಕೀಯ"],
+    "kn": ["ಹವಾಮಾನ", "ಷೇರು", "ಚಲನಚಿತ್ರ", "ಸಿನಿಮಾ", "ಸುದ್ದಿ", "ಕ್ರೀಡೆ", "ಕ್ರಿಕೆಟ್", "ಅಡುಗೆ", "ಪ್ರಯಾಣ",
+            "ಕೋವಿಡ್", "ಸಂಚಾರ", "ರಾಜಕೀಯ"],
     "te": ["వాతావరణం", "షేరు", "సినిమా", "వార్తలు", "క్రీడ", "క్రికెట్", "వంట", "ప్రయాణం",
            "కోవిడ్", "ట్రాఫిక్", "రాజకీయాలు"],
 }
@@ -404,7 +468,7 @@ class EnergyPulseChatbot:
         language = language or "en"
 
         intent = self._plan_tools(question, language)
-        if intent == "out_of_scope":
+        if intent == ["out_of_scope"]:
             answer = t_lang("chat_out_of_scope", language)
             self.db.save_conversation(
                 household_id=household_id, email=email, question=question, answer=answer,
@@ -436,7 +500,13 @@ class EnergyPulseChatbot:
                 tool_results[tool_name] = result
                 self._register_tool_result_with_guard(tool_name, result)
             except Exception as e:  # never let a tool break the conversation
-                tool_results[tool_name] = {"status": "error", "message": str(e)}
+                # The exception text can contain SQL, file paths or column
+                # names, none of which belong in a chat bubble.
+                tool_results[tool_name] = {
+                    "status": "error",
+                    "message": t_lang("chat_tool_failed", language),
+                    "error_type": type(e).__name__,
+                }
 
         answer = self._generate_answer(question, tool_results, language)
 
@@ -491,20 +561,36 @@ class EnergyPulseChatbot:
     # ── Intent planning ────────────────────────────────────
 
     def _plan_tools(self, question: str, language: str) -> List[str]:
-        """Decide which real-data tools to call, driven by the question language."""
+        """
+        Decide which real-data tools to call, driven by the question language.
+
+        A question that matches nothing in scope is reported as out of scope.
+        The previous version fell back to three tools, so "what is the capital
+        of France" was answered with household electricity figures.
+        """
         lower = (question or "").strip().lower()
         if not lower:
-            return ["get_usage_history", "get_current_prediction"]
+            return ["out_of_scope"]
 
         out_kws = _OUT_OF_SCOPE.get(language, _OUT_OF_SCOPE["en"])
-        if any(kw in lower for kw in out_kws):
+        if _matches_topic(lower, out_kws):
             return ["out_of_scope"]
 
         matched = set()
         for topic, langs in _QUESTION_TERMS.items():
             kws = langs.get(language, langs["en"])
-            if any(kw in lower for kw in kws):
+            if _matches_topic(lower, kws):
                 matched.add(topic)
+
+        appliance_terms = _APPLIANCE_TERMS.get(language, _APPLIANCE_TERMS["en"])
+        if _matches_topic(lower, appliance_terms):
+            matched.add("appliance")
+            # "how much does the geyser cost" is an appliance question, not a
+            # forecast question, so the cheaper appliance answer is the useful one.
+            matched.discard("prediction")
+
+        if not matched:
+            return ["out_of_scope"]
 
         # "Why is my bill higher / compare last week" style questions.
         # When the person explicitly asks about an appliance/category, treat it
@@ -529,11 +615,8 @@ class EnergyPulseChatbot:
             ("optimize", "get_optimization_tips"),
             ("notifications", "get_family_notification_log"),
         ]:
-            if topic in matched:
+            if topic in matched and tool not in tools:
                 tools.append(tool)
-
-        if not tools:
-            tools = ["get_usage_history", "get_current_prediction", "get_optimization_tips"]
         return tools
 
     # ── Answer generation ──────────────────────────────────
