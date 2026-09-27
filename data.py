@@ -99,10 +99,24 @@ def load_and_clean() -> pd.DataFrame:
     return df
 
 
+MINUTES_PER_HOUR = 60
+
+# UCI sub-metering columns are energy in Wh per *minute*. Once the series is
+# resampled to hourly frequency the stored column must mean Wh per *hour* so
+# that .sum() yields real energy. Without this conversion the sub-meters
+# appear 60x too small and every appliance breakdown collapses to
+# "99% other".
+SUB_METER_COLS = ["Sub_metering_1", "Sub_metering_2", "Sub_metering_3"]
+
+
 def resample_hourly(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Resample minute-level data to hourly averages.
-    This reduces ~2M rows to ~34K rows — manageable for a Streamlit demo.
+    Resample minute-level data to hourly frequency.
+
+    Power columns (kW) become the hourly mean power, so kWh = kW x 1h.
+    Sub-metering columns (Wh/min) are converted to Wh/hour by multiplying the
+    hourly mean by 60. This reduces ~2M rows to ~34K rows - manageable for a
+    Streamlit demo.
     """
     print("[..] Resampling to hourly frequency ...")
     df = df.set_index("datetime").sort_index()
@@ -120,6 +134,22 @@ def resample_hourly(df: pd.DataFrame) -> pd.DataFrame:
     )
     hourly.dropna(inplace=True)
     hourly = hourly.reset_index()
+
+    for col in SUB_METER_COLS:
+        if col in hourly.columns:
+            hourly[col] = hourly[col] * MINUTES_PER_HOUR
+
+    # Sanity check: sub-meters must be a plausible share of the main meter.
+    # Global_active_power is kW x 1h = kWh; sub-meters are Wh per hour.
+    total_kwh = hourly["Global_active_power"].sum()
+    sub_kwh = hourly[[c for c in SUB_METER_COLS if c in hourly.columns]].sum().sum() / 1000.0
+    if total_kwh > 0:
+        share = sub_kwh / total_kwh * 100.0
+        print(f"[OK] Sub-meters account for {share:.1f}% of metered consumption")
+        if share > 100:
+            print("[!!] Sub-meters exceed the main meter - units look inconsistent")
+        elif share < 5:
+            print("[!!] Sub-meters look implausibly small - units look inconsistent")
 
     print(f"[OK] Hourly rows: {len(hourly):,}")
     return hourly

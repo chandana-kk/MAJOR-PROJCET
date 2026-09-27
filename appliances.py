@@ -5,21 +5,18 @@ Maps the three sub-metering channels to labeled appliance categories
 and computes an "Other" category for unmetered usage.
 
 Sub-metering channels (from the UCI dataset):
-  Sub_metering_1 -> Kitchen        (watt-hours per minute)
-  Sub_metering_2 -> Laundry Room   (watt-hours per minute)
-  Sub_metering_3 -> Water Heater & AC (watt-hours per minute)
+  Sub_metering_1 -> Kitchen        (watt-hours per minute in the raw file)
+  Sub_metering_2 -> Laundry Room   (watt-hours per minute in the raw file)
+  Sub_metering_3 -> Water Heater & AC (watt-hours per minute in the raw file)
 
 Unit conversion note:
-  - Sub_metering values are in WATT-HOURS per minute (energy consumed
-    by that sub-meter during each minute-level reading).
-  - Global_active_power is in KILOWATTS (instantaneous power draw).
-  - To make them comparable we convert Global_active_power to watt-hours:
-      energy (Wh) = power (kW) * 1000 * time_fraction
-    For hourly resampled data, each row represents 1 hour, so:
-      energy (Wh) = Global_active_power (kW) * 1000 * 1 hour = Wh
-    The sub_metering values are already in Wh (they represent total Wh
-    over the measurement interval), so we just compare directly after
-    converting Global_active_power to Wh.
+  - The raw UCI file reports sub-meters in Wh per MINUTE.
+  - data.resample_hourly() converts them to Wh per HOUR (x60), so in the
+    cleaned hourly dataset every row of a Sub_metering_* column is the energy
+    consumed during that hour, in Wh.
+  - Global_active_power stays in kW, so each hourly row is kW x 1h = kWh,
+    i.e. x1000 to get Wh.
+  - The two are therefore directly comparable, and "Other" is the remainder.
 
 Usage:
     from appliances import get_appliance_breakdown
@@ -40,16 +37,16 @@ def compute_appliance_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     Add four appliance energy columns (in Wh) to the dataframe.
 
-    The sub_metering channels already report energy in Wh.
-    Global_active_power is in kW; multiply by 1000 to get Wh per hour.
-    The "Other" category = total Wh - sum of three sub-meters.
+    Sub_metering_* columns hold Wh per hour (already converted by
+    data.resample_hourly). Global_active_power is in kW; multiply by 1000 to
+    get Wh for the hour. "Other" = total Wh - sum of the three sub-meters.
     """
     df = df.copy()
 
     # Convert global power from kW to Wh (each row = 1 hour)
     df["_total_wh"] = df["Global_active_power"] * 1000.0
 
-    # Sub-meters are already in Wh
+    # Sub-meters are already Wh per hour
     for col, label in APPLIANCE_MAP.items():
         df[f"_{label}_wh"] = df[col]
 

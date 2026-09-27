@@ -194,16 +194,48 @@ def train_lstm(train: pd.DataFrame, test: pd.DataFrame):
 # Hybrid model
 # ──────────────────────────────────────────────────────────────────────
 
-def compute_hybrid(xgb_preds, lstm_preds, y_true):
+def hybrid_weights(xgb_mae, lstm_mae):
     """
-    Average XGBoost and LSTM predictions.
+    Blend the two models in inverse proportion to their validation MAE.
+
+    A plain 50/50 average is only sensible when the two models are equally
+    accurate. Here XGBoost is roughly an order of magnitude more accurate
+    than the LSTM, so an equal average is dragged well below XGBoost alone.
+    Weighting by 1/MAE keeps both models in the blend while letting the more
+    accurate one dominate. Returns (w_xgb, w_lstm) summing to 1.
+    """
+    xgb_mae = abs(float(xgb_mae))
+    lstm_mae = abs(float(lstm_mae))
+    if not (np.isfinite(xgb_mae) and np.isfinite(lstm_mae)):
+        return 0.5, 0.5
+    if xgb_mae <= 0 and lstm_mae <= 0:
+        return 0.5, 0.5
+    if xgb_mae <= 0:
+        return 0.0, 1.0
+    if lstm_mae <= 0:
+        return 1.0, 0.0
+    inv_x, inv_l = 1.0 / xgb_mae, 1.0 / lstm_mae
+    total = inv_x + inv_l
+    return inv_x / total, inv_l / total
+
+
+def compute_hybrid(xgb_preds, lstm_preds, y_true, weights=None):
+    """
+    Blend XGBoost and LSTM predictions.
     LSTM preds start at index WINDOW_SIZE (sequences discard first rows).
     XGBoost preds cover every test row. Align them.
     Returns (hybrid_predictions, hybrid_MAE).
     """
     n = min(len(xgb_preds), len(lstm_preds))
-    hybrid = (xgb_preds[WINDOW_SIZE : WINDOW_SIZE + n] + lstm_preds[:n]) / 2.0
-    aligned_y = y_true[WINDOW_SIZE : WINDOW_SIZE + n]
+    if weights is None:
+        weights = hybrid_weights(
+            mean_absolute_error(y_true[WINDOW_SIZE: WINDOW_SIZE + n], xgb_preds[:n]),
+            mean_absolute_error(y_true[WINDOW_SIZE: WINDOW_SIZE + n], lstm_preds[:n]),
+        )
+    w_xgb, w_lstm = weights
+    hybrid = (w_xgb * xgb_preds[WINDOW_SIZE: WINDOW_SIZE + n]
+              + w_lstm * lstm_preds[:n])
+    aligned_y = y_true[WINDOW_SIZE: WINDOW_SIZE + n]
     mae = mean_absolute_error(aligned_y, hybrid)
     return hybrid, mae
 
@@ -305,15 +337,23 @@ def _lstm_window(recent_df):
 
 
 def predict_next_period(row_dict, xgb_model, lstm_model, scaler, recent_df,
-                        return_info=False):
+                        return_info=False, weights=None):
     """
     Make a hybrid prediction for the next period given the current row
     and a window of recent readings.
 
     Returns (hybrid_pred, xgb_pred, lstm_pred) all in kW.
     With return_info=True a fourth element is appended:
-    {"lstm_used": bool, "lstm_reason": str}
+    {"lstm_used": bool, "lstm_reason": str, "w_xgb": float, "w_lstm": float}
     """
+    if weights is None:
+        weights = (0.5, 0.5)
+    w_xgb, w_lstm = float(weights[0]), float(weights[1])
+    if not (np.isfinite(w_xgb) and np.isfinite(w_lstm)) or (w_xgb + w_lstm) <= 0:
+        w_xgb, w_lstm = 0.5, 0.5
+    total_w = w_xgb + w_lstm
+    w_xgb, w_lstm = w_xgb / total_w, w_lstm / total_w
+
     feat_df = _feature_frame(row_dict)
     xgb_pred = _as_float(xgb_model.predict(feat_df)[0])
 
@@ -322,6 +362,7 @@ def predict_next_period(row_dict, xgb_model, lstm_model, scaler, recent_df,
 
     if lstm_model is None or scaler is None:
         reason = "lstm_unavailable"
+        w_lstm, w_xgb = 0.0, 1.0
     else:
         window, reason = _lstm_window(recent_df)
         if window is not None:
@@ -342,9 +383,14 @@ def predict_next_period(row_dict, xgb_model, lstm_model, scaler, recent_df,
             except Exception as exc:  # noqa: BLE001 - never let the LSTM kill the UI
                 reason = f"lstm_error:{type(exc).__name__}"
 
-    hybrid = _as_float((xgb_pred + lstm_pred) / 2.0)
+    hybrid = _as_float(w_xgb * xgb_pred + w_lstm * lstm_pred)
     if return_info:
-        return hybrid, xgb_pred, lstm_pred, {"lstm_used": lstm_used, "lstm_reason": reason}
+        return hybrid, xgb_pred, lstm_pred, {
+            "lstm_used": lstm_used,
+            "lstm_reason": reason,
+            "w_xgb": round(w_xgb, 4),
+            "w_lstm": round(w_lstm, 4),
+        }
     return hybrid, xgb_pred, lstm_pred
 
 
@@ -364,7 +410,9 @@ def main():
     lstm_model, scaler, lstm_preds, lstm_mae = train_lstm(train, test)
 
     # Combine into hybrid
-    _, h_mae = compute_hybrid(xgb_preds, lstm_preds, y_test)
+    w_xgb, w_lstm = hybrid_weights(xgb_mae, lstm_mae)
+    _, h_mae = compute_hybrid(xgb_preds, lstm_preds, y_test, weights=(w_xgb, w_lstm))
+    _, equal_mae = compute_hybrid(xgb_preds, lstm_preds, y_test, weights=(0.5, 0.5))
 
     # Print comparison
     print(f"\n{'=' * 55}")
@@ -374,7 +422,9 @@ def main():
     print("-" * 55)
     print(f"  {'XGBoost':<18} {xgb_mae:>12.4f}")
     print(f"  {'LSTM':<18} {lstm_mae:>12.4f}")
-    print(f"  {'Hybrid (avg)':<18} {h_mae:>12.4f}")
+    print(f"  {'Hybrid 50/50':<18} {equal_mae:>12.4f}")
+    print(f"  {'Hybrid weighted':<18} {h_mae:>12.4f}   "
+          f"(XGBoost {w_xgb:.3f} / LSTM {w_lstm:.3f})")
     print("=" * 55)
 
     # Save XGBoost model
@@ -400,6 +450,8 @@ def main():
         "xgb_mae": xgb_mae,
         "lstm_mae": lstm_mae,
         "hybrid_mae": h_mae,
+        "hybrid_mae_equal": equal_mae,
+        "hybrid_weights": (w_xgb, w_lstm),
         "feature_cols": FEATURE_COLS,
         "target": TARGET,
         "window_size": WINDOW_SIZE,

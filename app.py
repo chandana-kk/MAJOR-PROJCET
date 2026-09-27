@@ -1307,7 +1307,7 @@ def _main_dashboard_inner():
     # which consumes Global_active_power as one of its input features.
     pred_kw, xgb_p, lstm_p, pred_info = predict_next_period(
         live_row, xgb_model, lstm_model, scaler, replay_window_raw,
-        return_info=True,
+        return_info=True, weights=meta.get("hybrid_weights"),
     )
     pred_kw *= sf
     xgb_p *= sf
