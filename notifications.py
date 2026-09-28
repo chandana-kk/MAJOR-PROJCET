@@ -16,6 +16,7 @@ re-queried from family_members at send time.
 import os
 import re
 import smtplib
+import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Dict, List, Optional, Tuple, Any
@@ -26,6 +27,78 @@ load_dotenv()
 
 from db import get_db
 from i18n import t_lang, format_localized_month, localized_appliance_label
+
+log = logging.getLogger(__name__)
+
+# Defaults so that a user who only fills in a username and an app password
+# gets working Gmail SMTP without having to know these variable names.
+DEFAULT_SMTP_HOST = "smtp.gmail.com"
+DEFAULT_SMTP_PORT = 587
+DEFAULT_SMTP_FROM = "noreply@energypulse.local"
+
+# Secrets may live in .streamlit/secrets.toml. Streamlit supports both a flat
+# file and grouped sections, so both layouts are searched.
+_SECRET_SECTIONS = (None, "notifications", "email", "sms")
+
+
+def _secret_lookup(name: str) -> Optional[str]:
+    """
+    Read one value from st.secrets, or None when secrets.toml is absent.
+
+    Streamlit raises (or warns) outside a script run and when no secrets file
+    exists, so every access is guarded: a missing secrets.toml is a normal
+    setup, not an error.
+    """
+    try:
+        import streamlit as st
+        secrets = st.secrets
+    except Exception:
+        return None
+    for section in _SECRET_SECTIONS:
+        try:
+            source = secrets if section is None else secrets[section]
+        except Exception:
+            continue
+        try:
+            value = source[name]
+        except Exception:
+            continue
+        if value is None:
+            continue
+        return str(value)
+    return None
+
+
+def _read_setting(*names: str) -> Optional[str]:
+    """
+    First non-empty value among `names`, from the environment first and then
+    st.secrets. Environment variables win so that a stale secrets.toml cannot
+    silently override a .env the user just edited.
+    """
+    for name in names:
+        value = os.getenv(name)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    for name in names:
+        value = _secret_lookup(name)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return None
+
+
+def _redact(text: str, secrets: Tuple[Optional[str], ...] = ()) -> str:
+    """
+    Replace any configured credential found in `text` with ****.
+
+    Server error strings are echoed to the user and written to the log table,
+    so a password that a provider happens to include in its reply must never
+    travel any further than this function.
+    """
+    cleaned = str(text)
+    for secret in secrets:
+        if secret and len(str(secret).strip()) >= 4:
+            cleaned = cleaned.replace(str(secret), "****")
+    return cleaned
 
 
 def _round2(value: float) -> float:
@@ -51,17 +124,30 @@ class NotificationService:
     _PLACEHOLDER_RE = re.compile(r"(your[_.]|changeme|placeholder|_here$)", re.IGNORECASE)
 
     def __init__(self):
-        # Env is read at construction time (fresh on every app restart), so a
+        # Config is read at construction time (fresh on every app restart), so a
         # user can add credentials to .env and see "Configured" after restarting.
-        self.SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
-        self.SMTP_HOST = os.getenv("SMTP_HOST")
-        self.SMTP_PORT, self.SMTP_PORT_ERROR = self._parse_port(os.getenv("SMTP_PORT"))
-        self.SMTP_USERNAME = os.getenv("SMTP_USERNAME")
-        self.SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
-        self.SMTP_FROM = os.getenv("SMTP_FROM") or os.getenv("SMTP_USERNAME") or "noreply@energypulse.local"
-        self.TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-        self.TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-        self.TWILIO_FROM_NUMBER = os.getenv("TWILIO_FROM_NUMBER")
+        # SMTP_USER is the documented name; SMTP_USERNAME is kept as an alias so
+        # older .env files and the setup guide keep working.
+        self.SENDGRID_API_KEY = _read_setting("SENDGRID_API_KEY")
+        self.SMTP_HOST = _read_setting("SMTP_HOST") or DEFAULT_SMTP_HOST
+        self.SMTP_PORT, self.SMTP_PORT_ERROR = self._parse_port(
+            _read_setting("SMTP_PORT")
+        )
+        self.SMTP_USERNAME = _read_setting("SMTP_USER", "SMTP_USERNAME")
+        self.SMTP_PASSWORD = _read_setting("SMTP_PASSWORD")
+        self.SMTP_FROM = (
+            _read_setting("SMTP_FROM")
+            or self.SMTP_USERNAME
+            or DEFAULT_SMTP_FROM
+        )
+        self.SMTP_STARTTLS = self._truthy(_read_setting("SMTP_STARTTLS"), default=True)
+        self.SMTP_USE_SSL = self._truthy(_read_setting("SMTP_USE_SSL"), default=False)
+        # Port 465 is implicit TLS: there is no STARTTLS step to perform.
+        if self.SMTP_PORT == 465 and _read_setting("SMTP_USE_SSL") is None:
+            self.SMTP_USE_SSL = True
+        self.TWILIO_ACCOUNT_SID = _read_setting("TWILIO_ACCOUNT_SID")
+        self.TWILIO_AUTH_TOKEN = _read_setting("TWILIO_AUTH_TOKEN")
+        self.TWILIO_FROM_NUMBER = _read_setting("TWILIO_FROM_NUMBER")
         self.db = get_db()
         self.email_backend = None
         self.sms_backend = None
@@ -76,6 +162,44 @@ class NotificationService:
         self._init_sms_backend()
 
     @staticmethod
+    def _truthy(value: Optional[str], default: bool = False) -> bool:
+        if value is None:
+            return default
+        return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+    @property
+    def _secret_values(self) -> Tuple[Optional[str], ...]:
+        """Everything that must never be echoed back to the UI or a log."""
+        return (
+            self.SMTP_PASSWORD,
+            self.SENDGRID_API_KEY,
+            self.TWILIO_AUTH_TOKEN,
+        )
+
+    def _clean_error(self, exc: BaseException) -> str:
+        """Readable one-line error text with any credential masked out."""
+        message = _redact(str(exc), self._secret_values).strip()
+        if not message:
+            return exc.__class__.__name__
+        if message == exc.__class__.__name__:
+            return message
+        return f"{exc.__class__.__name__}: {message}"
+
+    def _log_notification(self, **kwargs) -> bool:
+        """
+        Write one history row, never raising.
+
+        A logging failure must not be able to abort the send loop or reach the
+        user as a send error, so the real outcome is returned separately.
+        """
+        try:
+            self.db.log_notification(**kwargs)
+            return True
+        except Exception as e:
+            log.error("Could not write notification history: %s", self._clean_error(e))
+            return False
+
+    @staticmethod
     def _parse_port(raw: Optional[str]) -> Tuple[int, Optional[str]]:
         """
         Read SMTP_PORT without letting a typo take down the whole app.
@@ -87,13 +211,13 @@ class NotificationService:
         """
         text = (raw or "").strip()
         if not text:
-            return 587, None
+            return DEFAULT_SMTP_PORT, None
         try:
             port = int(text)
         except ValueError:
-            return 587, f"SMTP_PORT={text!r} is not a number; using 587"
+            return DEFAULT_SMTP_PORT, f"SMTP_PORT={text!r} is not a number; using {DEFAULT_SMTP_PORT}"
         if not 1 <= port <= 65535:
-            return 587, f"SMTP_PORT={port} is out of range 1-65535; using 587"
+            return DEFAULT_SMTP_PORT, f"SMTP_PORT={port} is out of range 1-65535; using {DEFAULT_SMTP_PORT}"
         return port, None
 
     @staticmethod
@@ -124,6 +248,29 @@ class NotificationService:
         if host and self._real(user) and self._real(password):
             self.email_backend = "smtp"
 
+    def email_missing(self) -> List[str]:
+        """
+        Names of the variables still needed before email can be sent.
+
+        The UI shows these so a user can see which value to add instead of
+        only being told "not configured". SMTP_HOST and SMTP_PORT are left out
+        because they fall back to Gmail/587, and SMTP_FROM is left out because
+        it defaults to SMTP_USER.
+        """
+        if self.email_backend:
+            return []
+        missing = []
+        if not self._real(self.SMTP_USERNAME):
+            missing.append("SMTP_USER")
+        if not self._real(self.SMTP_PASSWORD):
+            missing.append("SMTP_PASSWORD")
+        if not (self.SMTP_HOST or "").strip():
+            missing.append("SMTP_HOST")
+        return missing
+
+    def email_configured(self) -> bool:
+        return bool(self.email_backend)
+
     def email_status(self) -> str:
         """
         Honest delivery state: not_configured, configured, verified or failed.
@@ -149,6 +296,22 @@ class NotificationService:
                 self.twilio_client = Client(sid, token)
             except ImportError:
                 self.sms_backend = None
+
+    def sms_missing(self) -> List[str]:
+        """Twilio variables still needed. SMS is optional, so this is a hint."""
+        if self.sms_backend:
+            return []
+        missing = []
+        if not self._real(self.TWILIO_ACCOUNT_SID):
+            missing.append("TWILIO_ACCOUNT_SID")
+        if not self._real(self.TWILIO_AUTH_TOKEN):
+            missing.append("TWILIO_AUTH_TOKEN")
+        if not self._real(self.TWILIO_FROM_NUMBER):
+            missing.append("TWILIO_FROM_NUMBER")
+        return missing
+
+    def sms_configured(self) -> bool:
+        return bool(self.sms_backend)
 
     def recipients_for(self, household_id: str, primary_email: str,
                        preference_field: str, default_language: str) -> List[Tuple[str, str, str, Optional[str]]]:
@@ -212,7 +375,7 @@ class NotificationService:
             subject = t_lang("email_bill_subject", lang, month=month_lbl)
             body = self._compose(name, body_core, lang)
             ok, err = self._deliver(email, subject, body, phone)
-            self.db.log_notification(
+            self._log_notification(
                 household_id=household_id,
                 recipient_email=email,
                 recipient_name=name,
@@ -253,7 +416,7 @@ class NotificationService:
             )
             body = self._compose(name, body_core, lang)
             ok, err = self._deliver(email, subject, body, phone)
-            self.db.log_notification(
+            self._log_notification(
                 household_id=household_id,
                 recipient_email=email,
                 recipient_name=name,
@@ -303,7 +466,7 @@ class NotificationService:
             )
             body = self._compose(name, body_core, lang)
             ok, err = self._deliver(email, subject, body, phone)
-            self.db.log_notification(
+            self._log_notification(
                 household_id=household_id,
                 recipient_email=email,
                 recipient_name=name,
@@ -328,7 +491,11 @@ class NotificationService:
         """
         Send a test email whose body contains real computed prediction figures.
         If those figures are not provided, they are loaded from stored forecast data.
+
+        Every attempt is written to the notification log, including the ones
+        that fail before a message is even built.
         """
+        subject = t_lang("email_test_subject", language)
         try:
             if predicted_cost is None or month is None:
                 stats = load_prediction_stats(tariff_rate=8.0)
@@ -353,7 +520,7 @@ class NotificationService:
                 "month": month,
                 "triggered_at": datetime.now().isoformat(),
             }
-            self.db.log_notification(
+            self._log_notification(
                 household_id=household_id,
                 recipient_email=recipient_email,
                 recipient_name="Test recipient",
@@ -370,7 +537,30 @@ class NotificationService:
                 return (True, "sent")
             return (False, err or "email_failed")
         except Exception as e:
-            return (False, str(e))
+            # A failure here (bad month string, unreadable forecast, ...) must
+            # still leave a row in the history, otherwise the user clicks
+            # "Send test", sees an error and has nothing to match it against.
+            err = self._clean_error(e)
+            self._log_notification(
+                household_id=household_id,
+                recipient_email=recipient_email,
+                recipient_name="Test recipient",
+                notification_type="test",
+                triggered_by="manual_test",
+                trigger_data={
+                    "type": "test",
+                    "predicted_cost": predicted_cost,
+                    "predicted_kwh": predicted_kwh,
+                    "month": month,
+                    "triggered_at": datetime.now().isoformat(),
+                },
+                subject=subject,
+                body_text="",
+                language=language,
+                status="failed",
+                error_message=err,
+            )
+            return (False, err)
 
     def _compose(self, name: str, body_core: str, language: str) -> str:
         hello = t_lang("email_hello", language, name=name)
@@ -380,7 +570,7 @@ class NotificationService:
     def _deliver(self, to_email: str, subject: str, body: str,
                  phone: Optional[str]) -> Tuple[bool, Optional[str]]:
         try:
-            email_ok = self._send_email(to_email, subject, body)
+            email_ok, send_error = self._send_email(to_email, subject, body)
             if phone and self.sms_backend:
                 try:
                     self.send_sms(phone, subject[:150])
@@ -391,25 +581,36 @@ class NotificationService:
                 self.last_email_error = None
                 return (True, None)
             if not self.email_backend:
-                return (False, "No email backend configured (set SENDGRID_API_KEY or SMTP_* in .env)")
-            self.last_email_error = "Email send failed"
-            return (False, "Email send failed")
+                missing = ", ".join(self.email_missing()) or "SENDGRID_API_KEY"
+                error = (
+                    "No email backend configured. Set these in .env (or "
+                    f".streamlit/secrets.toml) and restart the app: {missing}"
+                )
+                self.last_email_error = error
+                return (False, error)
+            # Surface the provider's own message, otherwise a rejected app
+            # password and an unreachable server look identical to the user.
+            self.last_email_error = send_error or "Email send failed"
+            return (False, self.last_email_error)
         except Exception as e:
-            self.last_email_error = str(e)
-            return (False, str(e))
+            self.last_email_error = self._clean_error(e)
+            return (False, self.last_email_error)
 
-    def _send_email(self, to_email: str, subject: str, body_text: str) -> bool:
+    def _send_email(self, to_email: str, subject: str,
+                    body_text: str) -> Tuple[bool, Optional[str]]:
         try:
             if self.email_backend == "sendgrid":
                 return self._send_via_sendgrid(to_email, subject, body_text)
             if self.email_backend == "smtp":
                 return self._send_via_smtp(to_email, subject, body_text)
-            return False
+            return (False, "No email backend selected")
         except Exception as e:
-            print(f"[ERROR] Email send failed to {to_email}: {e}")
-            return False
+            error = self._clean_error(e)
+            log.error("Email send to %s failed: %s", to_email, error)
+            return (False, error)
 
-    def _send_via_sendgrid(self, to_email: str, subject: str, body_text: str) -> bool:
+    def _send_via_sendgrid(self, to_email: str, subject: str,
+                           body_text: str) -> Tuple[bool, Optional[str]]:
         try:
             from sendgrid.helpers.mail import Mail, Email, To, Content
             message = Mail(
@@ -419,26 +620,46 @@ class NotificationService:
                 plain_text_content=Content("text/plain", body_text),
             )
             response = self.sg_client.send(message)
-            return 200 <= response.status_code < 300
+            if 200 <= response.status_code < 300:
+                return (True, None)
+            body = ""
+            try:
+                body = (response.body or "")[:400]
+            except Exception:
+                body = ""
+            return (False, f"HTTP {response.status_code} from SendGrid: {body}".strip())
         except Exception as e:
-            print(f"[ERROR] SendGrid send failed: {e}")
-            return False
+            error = self._clean_error(e)
+            log.error("SendGrid send to %s failed: %s", to_email, error)
+            return (False, error)
 
-    def _send_via_smtp(self, to_email: str, subject: str, body_text: str) -> bool:
+    def _send_via_smtp(self, to_email: str, subject: str,
+                       body_text: str) -> Tuple[bool, Optional[str]]:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = self.SMTP_FROM
+        msg["To"] = to_email
+        msg.attach(MIMEText(body_text, "plain"))
         try:
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = subject
-            msg["From"] = self.SMTP_FROM
-            msg["To"] = to_email
-            msg.attach(MIMEText(body_text, "plain"))
-            with smtplib.SMTP(self.SMTP_HOST, self.SMTP_PORT, timeout=20) as server:
-                server.starttls()
-                server.login(self.SMTP_USERNAME, self.SMTP_PASSWORD)
+            if self.SMTP_USE_SSL:
+                server = smtplib.SMTP_SSL(self.SMTP_HOST, self.SMTP_PORT, timeout=20)
+            else:
+                server = smtplib.SMTP(self.SMTP_HOST, self.SMTP_PORT, timeout=20)
+            with server:
+                # Port 465 negotiates TLS at connect time, so there is no
+                # STARTTLS step to perform in that case.
+                if not self.SMTP_USE_SSL and self.SMTP_STARTTLS:
+                    server.starttls()
+                if self._real(self.SMTP_USERNAME) or self.SMTP_PASSWORD:
+                    server.login(self.SMTP_USERNAME, self.SMTP_PASSWORD)
                 server.sendmail(self.SMTP_FROM, [to_email], msg.as_string())
-            return True
+            return (True, None)
         except Exception as e:
-            print(f"[ERROR] SMTP send failed: {e}")
-            return False
+            error = self._clean_error(e)
+            # to_email only — never the password or the API key.
+            log.error("SMTP send to %s via %s:%s failed: %s",
+                      to_email, self.SMTP_HOST, self.SMTP_PORT, error)
+            return (False, error)
 
     def send_sms(self, to_phone: str, message: str) -> bool:
         if self.sms_backend != "twilio":
@@ -451,7 +672,8 @@ class NotificationService:
             )
             return True
         except Exception as e:
-            print(f"[ERROR] SMS send failed to {to_phone}: {e}")
+            error = self._clean_error(e)
+            log.error("SMS send to %s failed: %s", to_phone, error)
             return False
 
 

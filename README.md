@@ -29,7 +29,7 @@ dataset (34,168 hourly rows, December 2006 – November 2010) and a trained
 ### 2. Automated Notifications (Email & SMS)
 - **Bill Alerts**: Triggered by predicted cost threshold or schedule, content uses only real computed numbers
 - **Optimization Tips**: Triggered by real usage anomalies detected in data, each tip references specific real appliance and measured increase
-- Email via SendGrid, SMTP, or test mode
+- Email via Gmail SMTP, SendGrid, or test mode
 - SMS via Twilio (optional)
 - Each recipient in their preferred language
 - Full audit trail in notification log (who, when, what real data triggered it, status)
@@ -39,24 +39,42 @@ dataset (34,168 hourly rows, December 2006 – November 2010) and a trained
 
 #### Email configuration — Gmail SMTP (recommended, no signup)
 
-The app reads these exact variable names: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` (and optionally `SMTP_FROM`).
+Copy the template first:
 
-Set up a free Gmail app password in ~3 minutes (no third-party accounts):
+```
+copy .env.example .env        # Windows PowerShell
+cp .env.example .env          # macOS / Linux
+```
 
-1. **Turn on 2-Step Verification** — go to your Google Account → Security → *2-Step Verification* and turn it on (required once for app passwords).
-2. **Create an app password** — Google Account → Security → *App Passwords* → choose **Mail** (or Other → name it `energypulse`).
+The app only needs **two** variables. Everything else has a working default,
+so a shorter `.env` is a valid `.env`:
+
+| Variable | Required | Default when unset | Notes |
+| --- | --- | --- | --- |
+| `SMTP_USER` | **yes** | — | Your Gmail address. `SMTP_USERNAME` is still accepted as an older alias. |
+| `SMTP_PASSWORD` | **yes** | — | The 16-character **app password**, not your normal Gmail password. |
+| `SMTP_HOST` | no | `smtp.gmail.com` | |
+| `SMTP_PORT` | no | `587` | Port `465` is detected as implicit TLS automatically. |
+| `SMTP_FROM` | no | same as `SMTP_USER` | Set only to send from a different address. |
+| `SMTP_STARTTLS` | no | `true` | Only disable if your provider says to. |
+| `SMTP_USE_SSL` | no | `false` | Implied by port `465`. |
+
+Get a free Gmail app password in about three minutes (no third-party accounts):
+
+1. **Turn on 2-Step Verification** — Google Account → Security → *2-Step Verification* (required once for app passwords).
+2. **Create an app password** — Google Account → Security → *App Passwords* → **Mail** (or Other → name it `energypulse`).
 3. **Copy the 16-character password** it shows (e.g. `abcd efgh ijkl mnop`).
-4. **Edit the `.env` file** in the project root (if missing, copy `.env.example` and fill it in):
+4. **Put those two values in `.env`** in the project root:
    ```
-   SMTP_HOST=smtp.gmail.com
-   SMTP_PORT=587
-   SMTP_USERNAME=your@gmail.com
+   SMTP_USER=your@gmail.com
    SMTP_PASSWORD=the-16-character-app-password
    ```
-   (Leave `SMTP_FROM` blank to send from your own Gmail address.)
-5. **Save and restart the app.** The Notifications tab will show "Configured — not yet tested" — click **Send test** to verify delivery. It only reports "Connected" after a message has actually gone out.
+5. **Save and restart the app.** The Notifications tab switches to **Configured** and, if anything is still absent, names the exact variables it is waiting for. Press **Send test** to verify delivery — the tab only reports "Connected" after a message has actually gone out, and a failure shows the mail server's own error text.
 
-> Use the 16-character **app password**, not your normal Gmail password. Normal passwords are rejected by Google for SMTP.
+Values are read with `python-dotenv` and fall back to `.streamlit/secrets.toml`
+(flat keys or a `[notifications]` section both work), so you can keep
+credentials out of the working tree entirely. The environment wins when both
+are set. Neither `.env` nor `secrets.toml` is tracked by git.
 
 #### Email configuration — SendGrid (alternative)
 
@@ -66,14 +84,20 @@ If you prefer SendGrid instead of Gmail, create a free account at sendgrid.com, 
 SENDGRID_API_KEY=your_sendgrid_api_key_here
 ```
 
-Use **either** the SMTP block **or** `SENDGRID_API_KEY`, not both — the app prefers SendGrid when both are present. If no email variables are set at all, the app runs honestly in test mode: no email is sent, delivery status is recorded as failed, and the tab shows "Not configured".
+Use **either** the SMTP block **or** `SENDGRID_API_KEY`, not both — the app prefers SendGrid when both are present. If no email variables are set at all, the app runs honestly: no email is sent, delivery status is recorded as failed, and the tab shows "Not configured" together with the list of variables it still needs.
 
 A mistyped `SMTP_PORT` (anything that is not a number between 1 and 65535) is
 reported as a warning and falls back to port 587. It does not stop the app.
 
 #### SMS — optional (future step)
 
-SMS uses Twilio (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`). It is intentionally optional — leave the variables blank and SMS simply stays "Not configured" in the app. It is not required for email delivery.
+SMS uses Twilio (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`). It is intentionally optional — leave the variables blank and SMS reads **"Optional — not configured"** rather than an error. It is not required for email delivery, and installing the `twilio` package is optional too.
+
+#### Verifying the setup
+
+- The two metrics on the Notifications tab report the **actual** state: `Not configured` (with the missing variable names), `Configured`, `Connected` (a real send succeeded) or `Last send failed` (with the provider's message).
+- Every attempt, successful or not, is written to **Notification history** with its status and error text, so a failure can always be matched to the click that caused it.
+- Credentials are never printed, logged, or written to the database. If a provider echoes a secret inside its own error string, it is masked before display.
 
 ### 3. Grounded Q&A Chatbot
 - Natural language questions about household energy usage
@@ -125,6 +149,78 @@ streamlit run app.py
 ```
 
 The app then opens at `http://localhost:8501`.
+
+## Notification setup
+
+Email and SMS are **off until you supply credentials**, and the Notifications tab
+says so honestly instead of pretending to be connected. Nothing else in the app
+depends on them — the dashboard runs fully without this step.
+
+**1. Create the template**
+
+```bash
+copy .env.example .env        # Windows PowerShell
+cp .env.example .env          # macOS / Linux
+```
+
+**2. Fill in email (required for alerts)**
+
+The only two values you must set are the account and a Gmail app password.
+`SMTP_HOST`, `SMTP_PORT`, TLS and `SMTP_FROM` all have working defaults, so a
+two-line `.env` is valid:
+
+```ini
+SMTP_USER=you@gmail.com
+SMTP_PASSWORD=abcd efgh ijkl mnop
+```
+
+To get the app password: Google Account → Security → 2-Step Verification (on) →
+Security → App Passwords → **Mail**. Use the 16-character app password, not your
+normal Google password — Google rejects the normal one for SMTP.
+
+<details>
+<summary>Full variable reference (all optional unless marked)</summary>
+
+| Variable | Required | Default | Purpose |
+| --- | --- | --- | --- |
+| `SMTP_USER` | **yes** | — | Sending account. `SMTP_USERNAME` works as an alias. |
+| `SMTP_PASSWORD` | **yes** | — | App password for `SMTP_USER`. |
+| `SMTP_HOST` | no | `smtp.gmail.com` | SMTP server. |
+| `SMTP_PORT` | no | `587` | `587` = STARTTLS, `465` = implicit TLS (auto-detected). |
+| `SMTP_FROM` | no | `SMTP_USER` | Different sender address. |
+| `SMTP_STARTTLS` | no | `true` | Leave on unless your provider says otherwise. |
+| `SMTP_USE_SSL` | no | `false` | Implied by port `465`. |
+| `SENDGRID_API_KEY` | no | — | SendGrid instead of SMTP; wins if both are set. |
+
+</details>
+
+Values load via `python-dotenv`, falling back to `.streamlit/secrets.toml` if the
+environment variable is absent. Both flat keys and a `[notifications]` section
+are understood:
+
+```toml
+# .streamlit/secrets.toml
+SMTP_USER = "you@gmail.com"
+SMTP_PASSWORD = "abcd efgh ijkl mnop"
+```
+
+`.env` and `.streamlit/secrets.toml` are both in `.gitignore`. Credentials are
+never printed, logged, or stored — including when a provider echoes a secret
+back inside its own error message, which is masked before display.
+
+**3. SMS is optional**
+
+Leave `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_FROM_NUMBER` unset
+and SMS reads **"Optional — not configured"** (not an error), with alerts going
+out by email only. The `twilio` package is optional too.
+
+**4. Restart and verify**
+
+Restart the app after editing `.env` — configuration is read once at startup.
+The tab then shows **Configured**, or names the variables still missing. Press
+**Send test** to deliver a real message to the selected recipient; success and
+failure messages show the mail server's own text, and every attempt is recorded
+in **Notification history** with its status and error.
 
 ## Project structure
 

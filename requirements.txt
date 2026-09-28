@@ -6,8 +6,15 @@ scikit-learn>=1.3
 xgboost>=2.0
 tensorflow>=2.15
 plotly>=5.24
+
+# Notifications.
+# python-dotenv loads .env for SMTP_HOST / SMTP_USER / SMTP_PASSWORD / SMTP_FROM
+# (and the Twilio variables), falling back to .streamlit/secrets.toml.
 python-dotenv>=1.0
+# sendgrid is the optional alternative email backend.
 sendgrid>=6.10
+# twilio is the optional SMS backend. Without it SMS simply stays
+# "Optional - not configured" and email alerts are unaffected.
 twilio>=8.10
 
 # Bill photo OCR. The Python packages install on their own, but the Tesseract

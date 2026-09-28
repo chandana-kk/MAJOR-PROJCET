@@ -228,7 +228,7 @@ def render_notifications_tab(db, household_id: str, primary_email: str,
     email_state = service.email_status()
     _EMAIL_STATE_KEY = {
         "not_configured": "notif_not_configured",
-        "configured": "notif_configured_unverified",
+        "configured": "notif_configured",
         "verified": "notif_connected",
         "failed": "notif_send_failed",
     }
@@ -246,13 +246,27 @@ def render_notifications_tab(db, household_id: str, primary_email: str,
                               user=service.SMTP_USERNAME))
         elif email_backend == "sendgrid":
             st.caption(T("notif_email_caption_sendgrid"))
+        if email_state == "configured":
+            # Honest: the credentials were found, nothing has been sent yet.
+            st.caption(T("notif_configured_unverified"))
+        if not email_backend:
+            missing = service.email_missing()
+            if missing:
+                st.caption(t_lang("notif_missing", language, vars=", ".join(missing)))
     with c2:
-        sms_status = T("notif_connected") if service.sms_backend else T("notif_not_configured")
-        st.metric(T("notif_sms_backend"), f"{'\u2713 ' if service.sms_backend else ''}{sms_status}")
+        if service.sms_configured():
+            st.metric(T("notif_sms_backend"), f"\u2713 {T('notif_connected')}")
+        else:
+            # SMS is optional, so an absent Twilio key is a normal state and is
+            # not reported as a problem.
+            st.metric(T("notif_sms_backend"), T("notif_sms_not_configured"))
         st.caption(T("notif_sms_optional"))
+        missing_sms = service.sms_missing()
+        if missing_sms:
+            st.caption(t_lang("notif_missing", language, vars=", ".join(missing_sms)))
 
     if not email_backend:
-        with st.expander(T("notif_howto_title")):
+        with st.expander(T("notif_howto_title"), expanded=True):
             st.markdown(T("notif_howto_intro"))
             st.markdown(T("notif_howto_step1"))
             st.markdown(T("notif_howto_step2"))
@@ -260,6 +274,7 @@ def render_notifications_tab(db, household_id: str, primary_email: str,
             st.markdown(T("notif_howto_step4"))
             st.code(T("notif_howto_env"), language="properties")
             st.markdown(T("notif_howto_step5"))
+            st.markdown(T("notif_howto_secrets"))
             st.markdown(f"**{T('notif_howto_alt_title')}**")
             st.markdown(T("notif_howto_alt"))
 
@@ -293,10 +308,14 @@ def render_notifications_tab(db, household_id: str, primary_email: str,
                     predicted_kwh=float(nm_info.get("total_kwh") or 0),
                     month=nm_info.get("month", "N/A"),
                 )
+            # msg carries the provider's own words, so an authentication
+            # refusal and an unreachable host no longer look the same.
             if ok:
-                st.success(T("notif_status_ok"))
+                st.success(t_lang("notif_test_ok", language, email=recipient))
             else:
-                st.warning(msg or T("notif_status_fail"))
+                st.error(t_lang("notif_test_failed", language,
+                                email=recipient,
+                                error=msg or t_lang("notif_status_fail", language)))
     with cB:
         if st.button(T("notif_run_now"), key="notif_run_checks"):
             with st.spinner("..."):
