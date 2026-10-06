@@ -420,17 +420,98 @@ st.markdown("""
         .stButton > button { min-height: 44px; }
         section[data-testid="stSidebar"] .stButton > button { min-height: 40px; }
     }
+    /* Premium dark surfaces used consistently across Streamlit tabs and cards. */
+    .stApp {
+        background:
+            radial-gradient(ellipse at 12% 0%, rgba(83, 117, 72, 0.10), transparent 38%),
+            #101311;
+        color: #EDF2EC;
+    }
+    [data-testid="stMainBlockContainer"] { max-width: 1540px; }
+    .section-header h2, .mc-value, .empty-state-title, .error-card-title,
+    .tip-box strong, .disc strong { color: #EDF2EC !important; }
+    .metric-card, .live-bar, .tip-box, .bill-card, .error-card {
+        background: linear-gradient(145deg, #1C221D, #171B18) !important;
+        border-color: rgba(214, 230, 207, 0.10) !important;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.20), inset 0 1px rgba(255,255,255,0.025) !important;
+    }
+    .section-header h2 { color: #EDF2EC !important; }
+    .mc-label, .mc-sub, .mc-unit, .tip-box, .disc p, .empty-state,
+    .error-card-msg, .cal-header { color: #A9B4A8 !important; }
+    .live-bar { color: #C1CBC0 !important; }
+    .cal-day.low { background: rgba(134,184,107,0.16); color: #A9D28F; }
+    .cal-day.medium { background: rgba(224,174,96,0.16); color: #E8BE7C; }
+    .cal-day.high { background: rgba(220,112,112,0.16); color: #E99A9A; }
+    .cal-day.future { background: rgba(134,184,107,0.08); color: #91B77D; }
+    .stTabs [data-baseweb="tab-list"] {
+        background: #171C18;
+        border: 1px solid rgba(214,230,207,0.08);
+        border-radius: 13px;
+        padding: 4px;
+        gap: 4px;
+    }
+    .stTabs [data-baseweb="tab"] { color: #A9B4A8; }
+    .stTabs [aria-selected="true"] {
+        color: #E8F2E3 !important;
+        background: #283326 !important;
+        border-radius: 9px;
+    }
+    [data-testid="stDataFrame"], [data-testid="stTable"] {
+        border: 1px solid rgba(214,230,207,0.10);
+        border-radius: 12px;
+        overflow: hidden;
+    }
+    [data-testid="stAlert"] {
+        background: #1A211B;
+        border: 1px solid rgba(214,230,207,0.12);
+    }
+    [data-testid="stTextInput"] input, [data-testid="stNumberInput"] input,
+    [data-testid="stTextArea"] textarea {
+        background: #161B17 !important;
+        color: #EDF2EC !important;
+        border-color: rgba(214,230,207,0.16) !important;
+    }
+    .stSelectbox [data-baseweb="select"] > div,
+    .stMultiSelect [data-baseweb="select"] > div {
+        background: #161B17;
+        border-color: rgba(214,230,207,0.16);
+    }
+    .stButton > button, [data-testid="stFormSubmitButton"] button {
+        border-color: rgba(214,230,207,0.16) !important;
+        background: #202720;
+        color: #E9F0E6;
+    }
+    .stButton > button[kind="primary"],
+    [data-testid="stFormSubmitButton"] button[kind="primary"] {
+        background: linear-gradient(135deg, #638D50, #486A3B) !important;
+        color: #FFFFFF !important;
+        border: 0 !important;
+    }
+    .hero {
+        background: linear-gradient(125deg, #202A20 0%, #263326 52%, #30432A 100%);
+        border-color: rgba(134,184,107,0.22);
+        box-shadow: 0 18px 48px rgba(0,0,0,0.22);
+    }
+    .sb-card { background: rgba(255,255,255,0.055); }
+    [style*="color:#1A1A1A"], [style*="color: #1A1A1A"],
+    [style*="color:#6B7280"], [style*="color: #6B7280"],
+    [style*="color:#6B7280;"], [style*="color:#4A5568"] {
+        color: #D0D8CF !important;
+    }
+    [style*="background: #FFFFFF"], [style*="background:#FFFFFF"] {
+        background: #1B211C !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 _PLOTLY_BASE = dict(
-    template="plotly_white",
+    template="plotly_dark",
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(family="Inter, sans-serif", color="#4A5568"),
+    font=dict(family="Inter, sans-serif", color="#D0D8CF"),
     margin=dict(l=40, r=20, t=40, b=40),
-    xaxis=dict(gridcolor="rgba(0,0,0,0.05)", zerolinecolor="rgba(0,0,0,0.08)"),
-    yaxis=dict(gridcolor="rgba(0,0,0,0.05)", zerolinecolor="rgba(0,0,0,0.08)"),
+    xaxis=dict(gridcolor="rgba(220,235,215,0.08)", zerolinecolor="rgba(220,235,215,0.12)"),
+    yaxis=dict(gridcolor="rgba(220,235,215,0.08)", zerolinecolor="rgba(220,235,215,0.12)"),
 )
 
 
