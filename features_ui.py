@@ -254,11 +254,12 @@ def render_notifications_tab(db, household_id: str, primary_email: str,
             if missing:
                 st.caption(t_lang("notif_missing", language, vars=", ".join(missing)))
     with c2:
-        if service.sms_configured():
+        sms_status = service.sms_status()
+        if sms_status == "connected":
             st.metric(T("notif_sms_backend"), f"\u2713 {T('notif_connected')}")
+        elif sms_status == "configured":
+            st.metric(T("notif_sms_backend"), T("notif_configured"))
         else:
-            # SMS is optional, so an absent Twilio key is a normal state and is
-            # not reported as a problem.
             st.metric(T("notif_sms_backend"), T("notif_sms_not_configured"))
         st.caption(T("notif_sms_optional"))
         missing_sms = service.sms_missing()

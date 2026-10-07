@@ -195,6 +195,37 @@ class TestMissingVariables(unittest.TestCase):
             "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER",
         ])
 
+    def test_sms_accepts_phone_alias_and_marks_configured_when_ready(self):
+        svc = build({
+            "TWILIO_ACCOUNT_SID": "AC123",
+            "TWILIO_AUTH_TOKEN": "secret",
+            "TWILIO_FROM_NUMBER": None,
+            "TWILIO_PHONE_NUMBER": "+15551234567",
+        })
+        self.assertEqual(svc.TWILIO_FROM_NUMBER, "+15551234567")
+        self.assertTrue(svc.sms_configured())
+        self.assertEqual(svc.sms_missing(), [])
+
+    def test_notification_service_refreshes_env_values_on_reload(self):
+        original = os.environ.get("TWILIO_ACCOUNT_SID")
+        os.environ["TWILIO_ACCOUNT_SID"] = "AC_old"
+        os.environ["TWILIO_AUTH_TOKEN"] = "token_old"
+        os.environ["TWILIO_FROM_NUMBER"] = "+15550000000"
+        notifications._notification_service = NotificationService()
+        os.environ["TWILIO_ACCOUNT_SID"] = "AC_new"
+        os.environ["TWILIO_AUTH_TOKEN"] = "token_new"
+        os.environ["TWILIO_FROM_NUMBER"] = "+15551111111"
+        refreshed = notifications.get_notification_service(force_refresh=True)
+        self.assertEqual(refreshed.TWILIO_ACCOUNT_SID, "AC_new")
+        self.assertEqual(refreshed.TWILIO_AUTH_TOKEN, "token_new")
+        self.assertEqual(refreshed.TWILIO_FROM_NUMBER, "+15551111111")
+        if original is None:
+            os.environ.pop("TWILIO_ACCOUNT_SID", None)
+            os.environ.pop("TWILIO_AUTH_TOKEN", None)
+            os.environ.pop("TWILIO_FROM_NUMBER", None)
+        else:
+            os.environ["TWILIO_ACCOUNT_SID"] = original
+
 
 class TestCredentialsAreNeverLeaked(unittest.TestCase):
     def test_error_text_is_redacted(self):

@@ -147,7 +147,8 @@ class NotificationService:
             self.SMTP_USE_SSL = True
         self.TWILIO_ACCOUNT_SID = _read_setting("TWILIO_ACCOUNT_SID")
         self.TWILIO_AUTH_TOKEN = _read_setting("TWILIO_AUTH_TOKEN")
-        self.TWILIO_FROM_NUMBER = _read_setting("TWILIO_FROM_NUMBER")
+        self.TWILIO_FROM_NUMBER = _read_setting("TWILIO_FROM_NUMBER", "TWILIO_PHONE_NUMBER")
+        self.TWILIO_PHONE_NUMBER = self.TWILIO_FROM_NUMBER
         self.db = get_db()
         self.email_backend = None
         self.sms_backend = None
@@ -289,13 +290,16 @@ class NotificationService:
     def _init_sms_backend(self):
         sid = (self.TWILIO_ACCOUNT_SID or "").strip()
         token = (self.TWILIO_AUTH_TOKEN or "").strip()
-        if self._real(sid) and self._real(token):
+        from_number = (self.TWILIO_FROM_NUMBER or "").strip()
+        if self._real(sid) and self._real(token) and self._real(from_number):
             try:
                 from twilio.rest import Client
                 self.sms_backend = "twilio"
                 self.twilio_client = Client(sid, token)
             except ImportError:
                 self.sms_backend = None
+        elif self._real(sid) and self._real(token):
+            self.sms_backend = None
 
     def sms_missing(self) -> List[str]:
         """Twilio variables still needed. SMS is optional, so this is a hint."""
@@ -309,6 +313,14 @@ class NotificationService:
         if not self._real(self.TWILIO_FROM_NUMBER):
             missing.append("TWILIO_FROM_NUMBER")
         return missing
+
+    def sms_status(self) -> str:
+        """Friendly status for UI: configured, connected, or missing."""
+        if not self.sms_backend:
+            if self.sms_missing():
+                return "not_configured"
+            return "configured"
+        return "connected"
 
     def sms_configured(self) -> bool:
         return bool(self.sms_backend)
@@ -664,6 +676,8 @@ class NotificationService:
     def send_sms(self, to_phone: str, message: str) -> bool:
         if self.sms_backend != "twilio":
             return False
+        if not self.twilio_client:
+            return False
         try:
             self.twilio_client.messages.create(
                 body=message,
@@ -675,6 +689,20 @@ class NotificationService:
             error = self._clean_error(e)
             log.error("SMS send to %s failed: %s", to_phone, error)
             return False
+
+    def send_test_sms(self, to_phone: str, message: str = "EnergyPulse test SMS") -> Tuple[bool, str]:
+        """Try a real Twilio send and return success plus the provider message."""
+        try:
+            if self.sms_backend != "twilio":
+                return False, "SMS backend not configured"
+            result = self.twilio_client.messages.create(
+                body=message,
+                from_=self.TWILIO_FROM_NUMBER,
+                to=to_phone,
+            )
+            return True, str(result.sid or "sent")
+        except Exception as e:
+            return False, self._clean_error(e)
 
 
 def load_prediction_stats(tariff_rate: float = 8.0) -> Dict[str, Any]:
@@ -799,8 +827,8 @@ def dispatch_household_alerts(household_id: str, primary_email: str,
 _notification_service = None
 
 
-def get_notification_service() -> NotificationService:
+def get_notification_service(force_refresh: bool = False) -> NotificationService:
     global _notification_service
-    if _notification_service is None:
+    if force_refresh or _notification_service is None:
         _notification_service = NotificationService()
     return _notification_service
